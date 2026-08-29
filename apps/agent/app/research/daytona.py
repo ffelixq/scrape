@@ -1,6 +1,8 @@
 import asyncio
 import base64
 import json
+import re
+import time
 from urllib.parse import urlparse
 
 from app.config import Settings
@@ -18,7 +20,6 @@ from urllib.parse import urlparse
 import fitz
 import httpx
 from bs4 import BeautifulSoup
-from playwright.async_api import async_playwright
 
 PATTERNS = [
     re.compile(r"ignore\s+(all\s+)?(previous|prior|above)\s+instructions", re.I),
@@ -43,30 +44,25 @@ def metadata(html, final_url):
     text = "\n".join(line.strip() for line in soup.get_text("\n").splitlines() if line.strip())
     return title, canonical_url, published, text[:250000]
 
-async def scrape_one(browser, item, maximum):
-    page = await browser.new_page(java_script_enabled=True)
+async def scrape_one(client, item, maximum):
     try:
-        response = await page.goto(item["url"], wait_until="domcontentloaded", timeout=35000)
-        if not response:
-            raise RuntimeError("Navigation returned no response")
+        response = await client.get(item["url"])
+        response.raise_for_status()
         content_type = (response.headers.get("content-type") or "text/html").lower()
-        final_url = page.url
-        status_code = response.status
+        final_url = str(response.url)
+        status_code = response.status_code
         if "application/pdf" in content_type or final_url.lower().endswith(".pdf"):
-            async with httpx.AsyncClient(timeout=35, follow_redirects=False) as client:
-                downloaded = await client.get(final_url)
-                downloaded.raise_for_status()
-                if len(downloaded.content) > maximum:
-                    raise RuntimeError("Document exceeds configured byte limit")
-                document = fitz.open(stream=downloaded.content, filetype="pdf")
-                text = "\n".join(page.get_text() for page in document)[:250000]
-                title = item.get("title") or final_url.rsplit("/", 1)[-1]
-                canonical = final_url
-                published = item.get("published_at")
+            if len(response.content) > maximum:
+                raise RuntimeError("Document exceeds configured byte limit")
+            document = fitz.open(stream=response.content, filetype="pdf")
+            text = "\n".join(pdf_page.get_text() for pdf_page in document)[:250000]
+            title = item.get("title") or final_url.rsplit("/", 1)[-1]
+            canonical = final_url
+            published = item.get("published_at")
         else:
-            html = await page.content()
-            if len(html.encode("utf-8")) > maximum:
+            if len(response.content) > maximum:
                 raise RuntimeError("Page exceeds configured byte limit")
+            html = response.text
             title, canonical, published, text = metadata(html, final_url)
         findings = [pattern.pattern for pattern in PATTERNS if pattern.search(text)]
         publisher = urlparse(final_url).hostname or "Unknown publisher"
@@ -80,19 +76,22 @@ async def scrape_one(browser, item, maximum):
         }
     except Exception as error:
         return {"url": item["url"], "error": str(error)[:500]}
-    finally:
-        await page.close()
 
 async def main():
     payload = json.loads(__import__("base64").b64decode(sys.argv[1]).decode())
-    async with async_playwright() as playwright:
-        browser = await playwright.chromium.launch(headless=True, args=["--disable-dev-shm-usage"])
+    limits = httpx.Limits(max_connections=4, max_keepalive_connections=4)
+    headers = {"User-Agent": "Proofline-Evidence-Investigator/1.0"}
+    async with httpx.AsyncClient(
+        timeout=35,
+        follow_redirects=True,
+        limits=limits,
+        headers=headers,
+    ) as client:
         semaphore = asyncio.Semaphore(4)
         async def bounded(item):
             async with semaphore:
-                return await scrape_one(browser, item, payload["max_bytes"])
+                return await scrape_one(client, item, payload["max_bytes"])
         results = await asyncio.gather(*(bounded(item) for item in payload["items"]))
-        await browser.close()
     print("__PROOFLINE_RESULT__" + json.dumps(results, separators=(",", ":")))
 
 asyncio.run(main())
@@ -122,16 +121,32 @@ class DaytonaResearchComputer:
     def _run_sync(self, candidates: list[SearchCandidate]) -> list[ScrapedDocument]:
         from daytona import CreateSandboxFromSnapshotParams, Daytona, DaytonaConfig
 
-        domains = sorted({urlparse(str(item.url)).hostname or "" for item in candidates})
         dependency_domains = [
             "pypi.org",
             "files.pythonhosted.org",
-            "cdn.playwright.dev",
-            "playwright.download.prss.microsoft.com",
         ]
-        allow_list = self.settings.daytona_domain_allow_list or ",".join(
-            [*domains, *dependency_domains]
-        )
+        permitted_domains: list[str] = []
+        permitted_candidates: list[SearchCandidate] = []
+        for candidate in candidates:
+            domain = urlparse(str(candidate.url)).hostname or ""
+            if domain not in permitted_domains and len(permitted_domains) >= 18:
+                continue
+            if domain not in permitted_domains:
+                permitted_domains.append(domain)
+            permitted_candidates.append(candidate)
+        candidates = permitted_candidates
+
+        if self.settings.daytona_domain_allow_list:
+            configured_domains = [
+                domain.strip()
+                for domain in self.settings.daytona_domain_allow_list.split(",")
+                if domain.strip()
+            ]
+            if len(configured_domains) > 20:
+                raise RuntimeError("DAYTONA_DOMAIN_ALLOW_LIST cannot contain more than 20 domains")
+            allow_list = ",".join(configured_domains)
+        else:
+            allow_list = ",".join([*permitted_domains, *dependency_domains])
         config = DaytonaConfig(
             api_key=self.settings.daytona_api_key,
             api_url=self.settings.daytona_api_url,
@@ -140,24 +155,40 @@ class DaytonaResearchComputer:
         daytona = Daytona(config)
         sandbox = None
         try:
-            sandbox = daytona.create(
-                CreateSandboxFromSnapshotParams(
-                    snapshot=self.settings.daytona_snapshot or None,
-                    ephemeral=True,
-                    ttl_minutes=self.settings.daytona_sandbox_ttl_minutes,
-                    domain_allow_list=allow_list,
-                    labels={"app": "proofline", "purpose": "untrusted-research"},
-                ),
-                timeout=60,
+            create_params = CreateSandboxFromSnapshotParams(
+                snapshot=self.settings.daytona_snapshot or None,
+                ephemeral=True,
+                ttl_minutes=self.settings.daytona_sandbox_ttl_minutes,
+                domain_allow_list=allow_list,
+                labels={"app": "proofline", "purpose": "untrusted-research"},
             )
+            for attempt in range(2):
+                try:
+                    sandbox = daytona.create(create_params, timeout=75)
+                    break
+                except BaseException as error:
+                    if isinstance(error, (KeyboardInterrupt, SystemExit)):
+                        raise
+                    if attempt == 1:
+                        raise RuntimeError(
+                            "Daytona sandbox creation failed after two bounded attempts: "
+                            f"{type(error).__name__}"
+                        ) from error
+                    time.sleep(1)
+            if sandbox is None:
+                raise RuntimeError("Daytona returned no sandbox after creation")
             install = (
-                "python -m pip install --quiet playwright beautifulsoup4 lxml pymupdf httpx "
-                "&& python -m playwright install chromium --with-deps"
+                "python -m pip install --quiet beautifulsoup4 lxml pymupdf httpx"
             )
-            sandbox.process.exec(
+            install_response = sandbox.process.exec(
                 install,
                 timeout=self.settings.daytona_command_timeout_seconds,
             )
+            if install_response.exit_code != 0:
+                detail = install_response.result.strip()[-2_000:]
+                raise RuntimeError(
+                    f"Daytona dependency setup failed (exit {install_response.exit_code}): {detail}"
+                )
             encoded_script = base64.b64encode(SANDBOX_WORKER.encode()).decode()
             payload = base64.b64encode(
                 json.dumps(
@@ -184,12 +215,32 @@ class DaytonaResearchComputer:
             )
             marker = "__PROOFLINE_RESULT__"
             if marker not in response.result:
-                raise RuntimeError("Daytona worker returned no validated result")
+                detail = response.result.strip()[-2_000:]
+                raise RuntimeError(
+                    f"Daytona worker failed (exit {response.exit_code}): {detail or 'no output'}"
+                )
             raw_results = json.loads(response.result.rsplit(marker, 1)[1].strip())
             documents: list[ScrapedDocument] = []
+            retrieval_failures: list[str] = []
             for item in raw_results:
-                if "error" not in item:
+                meaningful_text = re.sub(r"\s+", " ", item.get("text", "")).strip()
+                if "error" not in item and len(meaningful_text) >= 200:
                     documents.append(ScrapedDocument.model_validate(item))
+                elif "error" in item:
+                    retrieval_failures.append(
+                        f"{item.get('url', 'unknown URL')}: {item['error']}"
+                    )
+                else:
+                    retrieval_failures.append(
+                        f"{item.get('url', 'unknown URL')}: only "
+                        f"{len(meaningful_text)} text characters"
+                    )
+            if not documents:
+                detail = "; ".join(retrieval_failures[:5])
+                raise RuntimeError(
+                    "Daytona retrieved no evidence-bearing documents. "
+                    f"First retrieval results: {detail or 'no worker results'}"
+                )
             return documents
         finally:
             if sandbox is not None:

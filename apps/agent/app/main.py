@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import secrets
 from typing import Annotated
 
@@ -7,6 +8,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException, status
 from app.config import Settings, get_settings
 from app.models import InvestigationRequest, InvestigationResult, utc_now
 from app.orchestrator import ResearchOrchestrator
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Proofline Research Agent",
@@ -59,4 +62,13 @@ async def investigate(
             raise HTTPException(
                 status_code=status.HTTP_504_GATEWAY_TIMEOUT,
                 detail="Research exceeded the configured safety timeout.",
+            ) from error
+        except Exception as error:
+            logger.exception("Live investigation failed")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=(
+                    "A live research dependency failed. No conclusion was produced; "
+                    f"agent error: {type(error).__name__}."
+                ),
             ) from error

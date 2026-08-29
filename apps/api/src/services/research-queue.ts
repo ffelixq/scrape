@@ -24,6 +24,10 @@ const processor = async (job: Job<ResearchJob>) => {
     await investigationRepository.updateStatus(id, 'AUDITING');
     await investigationRepository.complete(id, result);
   } catch (error) {
+    const allowedAttempts = job.opts.attempts ?? 1;
+    if (job.attemptsMade + 1 < allowedAttempts) {
+      throw error;
+    }
     const message = error instanceof Error ? error.message : 'Unknown research failure';
     await investigationRepository.fail(id, message);
   }

@@ -50,6 +50,24 @@ const statusClass: Record<EvidenceStatus, string> = {
   UNVERIFIABLE: 'unverifiable',
 };
 
+function formatDuration(start: string, end: string | null): string {
+  if (!end) return 'In progress';
+  const elapsedSeconds = Math.max(
+    0,
+    Math.round((new Date(end).getTime() - new Date(start).getTime()) / 1_000),
+  );
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
+  return `Completed in ${minutes}m ${String(seconds).padStart(2, '0')}s`;
+}
+
+function evidenceStrengthLabel(score: number): string {
+  if (score >= 80) return 'Strong evidence · independently corroborated';
+  if (score >= 60) return 'Moderate evidence · review material gaps';
+  if (score >= 30) return 'Limited evidence · important gaps remain';
+  return 'Insufficient evidence · no reliable conclusion';
+}
+
 export function Workspace({ investigation, onReset }: WorkspaceProps) {
   const [activeTab, setActiveTab] = useState<WorkspaceTab>('overview');
   const [selectedSource, setSelectedSource] = useState<Source | null>(null);
@@ -64,6 +82,13 @@ export function Workspace({ investigation, onReset }: WorkspaceProps) {
   const selectedEvidence = selectedSource
     ? investigation.evidence.filter((item) => item.sourceId === selectedSource.id)
     : [];
+  const caseLabel = `PL–${investigation.id.replaceAll('-', '').slice(0, 8).toUpperCase()}`;
+  const isFailed = investigation.status === 'FAILED';
+  const securityEventCount = investigation.securityEvents.length;
+  const derivativeSourceCount = Math.max(
+    0,
+    investigation.metrics.sourcesChecked - investigation.metrics.independentSources,
+  );
 
   function shareReport() {
     void navigator.clipboard?.writeText(window.location.href);
@@ -76,10 +101,10 @@ export function Workspace({ investigation, onReset }: WorkspaceProps) {
         <div className="workspace-breadcrumb">
           <span>INVESTIGATIONS</span>
           <ChevronRight size={13} />
-          <strong>MERIDIAN SOLAR</strong>
+          <strong>LIVE INVESTIGATION</strong>
         </div>
         <div className="workspace-actions">
-          <span className="demo-data-chip">ILLUSTRATIVE DEMO DATA</span>
+          <span className="demo-data-chip">{isFailed ? 'RUN INCOMPLETE' : 'LIVE EVIDENCE'}</span>
           <button onClick={shareReport}>
             <Copy size={14} /> Share
           </button>
@@ -92,8 +117,8 @@ export function Workspace({ investigation, onReset }: WorkspaceProps) {
       <aside className="workspace-sidebar">
         <div className="investigation-id">
           <span>CASE</span>
-          <strong>PL–0829–014</strong>
-          <small>Completed in 4m 37s</small>
+          <strong>{caseLabel}</strong>
+          <small>{formatDuration(investigation.createdAt, investigation.completedAt)}</small>
         </div>
         <nav aria-label="Investigation report sections">
           {tabItems.map(({ id, label, icon: Icon }) => (
@@ -105,15 +130,15 @@ export function Workspace({ investigation, onReset }: WorkspaceProps) {
               <Icon size={16} />
               <span>{label}</span>
               {id === 'contradictions' && <b>{investigation.metrics.contradictions}</b>}
-              {id === 'security' && <b>1</b>}
+              {id === 'security' && <b>{securityEventCount}</b>}
             </button>
           ))}
         </nav>
         <div className="sidebar-sandbox">
           <span>
-            <i /> SANDBOX DESTROYED
+            <i /> DAYTONA ISOLATION
           </span>
-          <p>Untrusted files erased after evidence export.</p>
+          <p>Untrusted retrieval is kept outside the application process.</p>
         </div>
         <button className="back-button" onClick={onReset}>
           <ArrowLeft size={15} /> New investigation
@@ -131,18 +156,23 @@ export function Workspace({ investigation, onReset }: WorkspaceProps) {
           </div>
         </div>
 
-        <div className="security-alert">
-          <ShieldAlert size={18} />
-          <div>
-            <strong>Potential prompt injection detected</strong>
-            <span>
-              Content isolated inside Daytona · instruction ignored · research continued safely
-            </span>
+        {securityEventCount > 0 && (
+          <div className="security-alert">
+            <ShieldAlert size={18} />
+            <div>
+              <strong>
+                {securityEventCount} potential prompt injection
+                {securityEventCount === 1 ? '' : 's'} detected
+              </strong>
+              <span>
+                Content isolated inside Daytona · instructions ignored · research continued
+              </span>
+            </div>
+            <button onClick={() => setActiveTab('security')}>
+              View {securityEventCount === 1 ? 'event' : 'events'} <ChevronRight size={14} />
+            </button>
           </div>
-          <button onClick={() => setActiveTab('security')}>
-            View event <ChevronRight size={14} />
-          </button>
-        </div>
+        )}
 
         {activeTab === 'overview' && (
           <motion.div
@@ -158,16 +188,15 @@ export function Workspace({ investigation, onReset }: WorkspaceProps) {
                   <CircleHelp size={16} /> FINAL VERDICT · {formatStatus(investigation.verdict)}
                 </div>
                 <h2>
-                  Growth is verified.
-                  <br />
-                  Contract readiness is not.
+                  {investigation.answer ?? 'The investigation has not produced a conclusion.'}
                 </h2>
-                <p>{investigation.answer}</p>
                 <div className="next-action">
-                  <strong>WHAT WOULD CHANGE THIS VERDICT</strong>
+                  <strong>
+                    {isFailed ? 'WHY THIS RUN STOPPED' : 'WHAT WOULD STRENGTHEN THIS VERDICT'}
+                  </strong>
                   <span>
-                    Obtain a current bank reference, certification number, and Q2 2026 ageing
-                    schedule.
+                    {investigation.limitations[0] ??
+                      'No material evidence limitations were reported for this investigation.'}
                   </span>
                 </div>
               </div>
@@ -198,7 +227,7 @@ export function Workspace({ investigation, onReset }: WorkspaceProps) {
                     STRENGTH
                   </small>
                 </div>
-                <p>Moderate evidence · material gaps remain</p>
+                <p>{evidenceStrengthLabel(investigation.evidenceStrength)}</p>
               </div>
             </section>
 
@@ -211,24 +240,32 @@ export function Workspace({ investigation, onReset }: WorkspaceProps) {
               <Metric
                 label="Independent origins"
                 value={investigation.metrics.independentSources}
-                detail="8 derivative sources removed"
+                detail={`${derivativeSourceCount} derivative ${derivativeSourceCount === 1 ? 'source' : 'sources'} grouped`}
                 accent
               />
               <Metric
                 label="Primary sources"
                 value={investigation.metrics.primarySources}
-                detail="Filings and registries"
+                detail="Direct or official evidence"
               />
               <Metric
                 label="Contradictions"
                 value={investigation.metrics.contradictions}
-                detail="Both investigated"
+                detail={
+                  investigation.metrics.contradictions
+                    ? 'Investigated and reconciled'
+                    : 'None identified'
+                }
                 warning
               />
               <Metric
                 label="False consensus"
                 value={investigation.metrics.falseConsensusClusters}
-                detail="Cluster detected"
+                detail={
+                  investigation.metrics.falseConsensusClusters
+                    ? 'Derivative clusters detected'
+                    : 'No clusters detected'
+                }
                 warning
               />
             </section>
@@ -261,6 +298,11 @@ export function Workspace({ investigation, onReset }: WorkspaceProps) {
                     </div>
                   </article>
                 ))}
+                {investigation.claims.length === 0 && (
+                  <div className="report-empty-state">
+                    No claims survived extraction and audit for this run.
+                  </div>
+                )}
               </div>
             </section>
 
@@ -340,13 +382,21 @@ export function Workspace({ investigation, onReset }: WorkspaceProps) {
               </div>
               <p>Agreement is counted by origin, not page count.</p>
             </div>
-            <div className="false-consensus-banner">
-              <GitFork size={20} />
-              <div>
-                <strong>False consensus detected</strong>
-                <span>4 pages repeat a single company press release. Counted as one origin.</span>
+            {investigation.metrics.falseConsensusClusters > 0 && (
+              <div className="false-consensus-banner">
+                <GitFork size={20} />
+                <div>
+                  <strong>False consensus detected</strong>
+                  <span>
+                    {investigation.metrics.falseConsensusClusters} derivative source
+                    {investigation.metrics.falseConsensusClusters === 1
+                      ? ' cluster was'
+                      : ' clusters were'}{' '}
+                    counted by origin.
+                  </span>
+                </div>
               </div>
-            </div>
+            )}
             <div className="source-table">
               <div className="source-table-head">
                 <span>Source</span>
@@ -377,6 +427,9 @@ export function Workspace({ investigation, onReset }: WorkspaceProps) {
                   </span>
                 </button>
               ))}
+              {investigation.sources.length === 0 && (
+                <div className="report-empty-state">No sources were exported from this run.</div>
+              )}
             </div>
           </motion.section>
         )}
@@ -409,6 +462,9 @@ export function Workspace({ investigation, onReset }: WorkspaceProps) {
                   </div>
                 </article>
               ))}
+              {investigation.contradictions.length === 0 && (
+                <div className="report-empty-state">No contradictions were identified.</div>
+              )}
             </div>
           </motion.section>
         )}
@@ -425,17 +481,17 @@ export function Workspace({ investigation, onReset }: WorkspaceProps) {
             <div className="security-summary-grid">
               <div>
                 <ShieldCheck size={22} />
-                <strong>1</strong>
-                <span>Sandbox used</span>
+                <strong>{investigation.sources.length > 0 ? 1 : 0}</strong>
+                <span>Sandbox with exported evidence</span>
               </div>
               <div>
                 <BookOpenCheck size={22} />
-                <strong>14</strong>
+                <strong>{investigation.metrics.sourcesChecked}</strong>
                 <span>Documents isolated</span>
               </div>
               <div>
                 <ShieldAlert size={22} />
-                <strong>1</strong>
+                <strong>{securityEventCount}</strong>
                 <span>Injection blocked</span>
               </div>
             </div>
@@ -458,6 +514,12 @@ export function Workspace({ investigation, onReset }: WorkspaceProps) {
                   <strong>{formatDate(event.detectedAt)}</strong>
                 </article>
               ))}
+              {securityEventCount === 0 && (
+                <div className="report-empty-state">
+                  No prompt-injection or malicious-content pattern was recorded in the exported
+                  evidence.
+                </div>
+              )}
             </div>
             <div className="isolation-diagram">
               <div>

@@ -57,6 +57,14 @@ const useCases = [
 export function Landing({ onInvestigate }: LandingProps) {
   const hero = useRef<HTMLElement>(null);
 
+  function focusInvestigationForm() {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.setTimeout(
+      () => document.querySelector<HTMLTextAreaElement>('#hero-question')?.focus(),
+      350,
+    );
+  }
+
   useLayoutEffect(() => {
     if (import.meta.env.MODE === 'test') return;
     const context = gsap.context(() => {
@@ -87,11 +95,8 @@ export function Landing({ onInvestigate }: LandingProps) {
           <a href="#security">Security</a>
           <a href="#use-cases">Use cases</a>
         </nav>
-        <button
-          className="header-cta"
-          onClick={() => onInvestigate('Show me the Proofline investigation demo')}
-        >
-          Open live demo
+        <button className="header-cta" onClick={focusInvestigationForm}>
+          Start investigating
         </button>
       </header>
 
@@ -132,12 +137,12 @@ export function Landing({ onInvestigate }: LandingProps) {
             <TruthScene />
           </Suspense>
           <div className="visual-label label-source">
-            <span className="tiny-dot green" /> 06 independent sources
+            <span className="tiny-dot green" /> EXAMPLE · 06 independent sources
           </div>
           <div className="visual-label label-warning">
-            <ShieldAlert size={13} /> injection isolated
+            <ShieldAlert size={13} /> EXAMPLE · injection isolated
           </div>
-          <div className="visual-label label-verdict">VERDICT · INCONCLUSIVE</div>
+          <div className="visual-label label-verdict">EXAMPLE VERDICT · INCONCLUSIVE</div>
         </div>
 
         <a href="#method" className="scroll-cue" aria-label="Scroll to methodology">
@@ -202,8 +207,8 @@ export function Landing({ onInvestigate }: LandingProps) {
             Claims are connected to exact excerpts, publication dates, source owners,
             contradictions, and the original evidence they depend on.
           </p>
-          <button onClick={() => onInvestigate('Show me the interactive evidence graph demo')}>
-            Explore an evidence graph <Network size={16} />
+          <button onClick={focusInvestigationForm}>
+            Start an evidence investigation <Network size={16} />
           </button>
         </div>
         <div className="mini-graph" aria-hidden="true">
@@ -232,7 +237,7 @@ export function Landing({ onInvestigate }: LandingProps) {
       <section id="security" className="security-section">
         <div className="security-console">
           <div className="console-header">
-            <span>DAYTONA // SANDBOX 8F3A</span>
+            <span>ILLUSTRATIVE SECURITY EVENT</span>
             <span className="console-live">
               <i /> ISOLATED
             </span>
@@ -309,7 +314,7 @@ export function Landing({ onInvestigate }: LandingProps) {
         <motion.button
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
-          onClick={() => onInvestigate('Show me the Proofline investigation demo')}
+          onClick={focusInvestigationForm}
         >
           Run the investigation <ArrowDown size={17} className="diagonal-arrow" />
         </motion.button>

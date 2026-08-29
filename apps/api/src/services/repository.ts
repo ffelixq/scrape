@@ -114,7 +114,13 @@ export class InvestigationRepository {
   }
 
   async complete(id: string, rawResult: Investigation): Promise<Investigation> {
-    const result = investigationSchema.parse({ ...rawResult, id, status: 'COMPLETED' });
+    const current = await this.get(id);
+    const result = investigationSchema.parse({
+      ...rawResult,
+      id,
+      status: 'COMPLETED',
+      createdAt: current?.createdAt ?? rawResult.createdAt,
+    });
     memory.set(id, result);
     await cacheInvestigation(result);
 

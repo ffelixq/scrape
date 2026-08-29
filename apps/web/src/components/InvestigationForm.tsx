@@ -1,6 +1,5 @@
 import { ArrowUpRight, LockKeyhole, Sparkles } from 'lucide-react';
 import { useState, type FormEvent } from 'react';
-import { DEMO_QUESTION } from '../data/demo';
 
 interface InvestigationFormProps {
   onSubmit: (question: string) => void;
@@ -13,7 +12,7 @@ export function InvestigationForm({
   compact = false,
   disabled = false,
 }: InvestigationFormProps) {
-  const [question, setQuestion] = useState(DEMO_QUESTION);
+  const [question, setQuestion] = useState('');
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -41,7 +40,7 @@ export function InvestigationForm({
         onChange={(event) => setQuestion(event.target.value)}
         rows={compact ? 2 : 3}
         maxLength={2000}
-        placeholder="Ask a claim that matters..."
+        placeholder="Example: Is this company financially healthy enough to invest in?"
         disabled={disabled}
       />
       <div className="form-footer">

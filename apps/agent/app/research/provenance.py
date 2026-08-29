@@ -1,6 +1,7 @@
 import hashlib
 import re
 from dataclasses import dataclass
+from urllib.parse import urlparse
 from uuid import NAMESPACE_URL, uuid5
 
 from rapidfuzz.fuzz import token_set_ratio
@@ -8,18 +9,35 @@ from rapidfuzz.fuzz import token_set_ratio
 from app.models import ScrapedDocument, SourceRecord, utc_now
 from app.research.security import detect_prompt_injection
 
-PRIMARY_HINTS = (
+PRIMARY_HOST_HINTS = (
     ".gov",
     "sec.gov",
-    "regulator",
-    "registry",
-    "filing",
-    "annual-report",
-    "statistics",
+    "mas.gov.sg",
+    "sgx.com",
+    "links.sgx.com",
     "centralbank",
-    "court",
 )
-AUTHORITATIVE_HINTS = (".edu", "reuters.com", "apnews.com", "ft.com", "bloomberg.com")
+PRIMARY_DOCUMENT_HINTS = (
+    "annual-report",
+    "annual report",
+    "financial statements",
+    "earnings release",
+    "results announcement",
+    "investor relations",
+    "pillar 3",
+    "regulatory disclosure",
+    "statistics",
+)
+AUTHORITATIVE_HINTS = (
+    ".edu",
+    "fitchratings.com",
+    "moodys.com",
+    "spglobal.com",
+    "reuters.com",
+    "apnews.com",
+    "ft.com",
+    "bloomberg.com",
+)
 LOW_HINTS = ("reddit.com", "medium.com", "blogspot.", "facebook.com", "x.com", "tiktok.com")
 
 
@@ -31,8 +49,13 @@ class ProvenanceBundle:
 
 
 def _source_quality(document: ScrapedDocument) -> tuple[str, int, bool]:
-    value = f"{document.final_url} {document.title}".lower()
-    if any(hint in value for hint in PRIMARY_HINTS):
+    url = str(document.final_url).lower()
+    hostname = urlparse(url).hostname or ""
+    title = document.title.lower()
+    value = f"{url} {title}"
+    if any(hint in hostname for hint in PRIMARY_HOST_HINTS) or any(
+        hint in f"{url} {title}" for hint in PRIMARY_DOCUMENT_HINTS
+    ):
         return "PRIMARY", 92, True
     if any(hint in value for hint in AUTHORITATIVE_HINTS):
         return "AUTHORITATIVE", 82, False
@@ -61,7 +84,7 @@ def build_provenance(documents: list[ScrapedDocument], investigation_id: str) ->
         sample = re.sub(r"\s+", " ", document.text[:10_000]).lower()
         for existing_group, members in groups.items():
             other = re.sub(r"\s+", " ", members[0].text[:10_000]).lower()
-            if token_set_ratio(sample, other) >= 88:
+            if min(len(sample), len(other)) >= 500 and token_set_ratio(sample, other) >= 88:
                 matched_group = existing_group
                 break
         groups.setdefault(matched_group or group, []).append(document)

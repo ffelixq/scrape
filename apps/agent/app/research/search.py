@@ -1,5 +1,8 @@
 import asyncio
+import re
 from collections.abc import Iterable
+from datetime import UTC, datetime
+from itertools import zip_longest
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -23,19 +26,57 @@ class SearchClient:
         await self.client.aclose()
 
     async def discover(self, question: str) -> list[SearchCandidate]:
+        entity_match = re.match(
+            r"(?i)^(?:is|are|should|can|does)\s+(.{3,100}?)"
+            r"(?:\s+(?:financially|healthy|safe|reliable|suitable|able|worth|currently)\b|[,?])",
+            question.strip(),
+        )
+        subject = entity_match.group(1).strip() if entity_match else question[:160]
+        current_year = datetime.now(UTC).year
         support_queries = [
-            f"{question} official filing primary source",
-            f"{question} government regulator data",
+            f'"{subject}" latest annual report financial results investor relations',
+            f'"{subject}" {current_year - 1} annual report PDF',
+            f'"{subject}" {current_year} financial results CET1 PDF',
+            f'"{subject}" stock exchange filing regulator official',
+            f"{question} primary source",
         ]
         oppose_queries = [
-            f"{question} false contradiction investigation",
-            f"{question} enforcement warning dispute risk",
+            f'"{subject}" enforcement warning credit risk regulatory action',
+            f'"{subject}" financial risks contradiction investigation',
+            f"{question} opposing evidence material risk",
         ]
         results = await asyncio.gather(
             *(self._search(query, "SUPPORT") for query in support_queries),
             *(self._search(query, "OPPOSE") for query in oppose_queries),
         )
-        return self._deduplicate(item for group in results for item in group)
+        subject_tokens = {
+            token
+            for token in re.findall(r"[a-z0-9]+", subject.lower())
+            if token not in {"ltd", "limited", "inc", "plc", "pte", "company", "co"}
+        }
+        filtered_results = [
+            [candidate for candidate in group if self._is_relevant(candidate, subject_tokens)]
+            for group in results
+        ]
+        balanced = (
+            item
+            for row in zip_longest(*filtered_results)
+            for item in row
+            if item is not None
+        )
+        return self._deduplicate(balanced)
+
+    @staticmethod
+    def _is_relevant(candidate: SearchCandidate, subject_tokens: set[str]) -> bool:
+        if not subject_tokens:
+            return True
+        hostname = (urlsplit(str(candidate.url)).hostname or "").lower()
+        if any(token in hostname for token in subject_tokens):
+            return True
+        haystack = f"{candidate.title} {candidate.snippet}".lower()
+        overlap = sum(token in haystack for token in subject_tokens)
+        required = 2 if len(subject_tokens) >= 2 else 1
+        return overlap >= required
 
     async def _search(self, query: str, role: str) -> list[SearchCandidate]:
         if self.settings.search_provider == "tavily":

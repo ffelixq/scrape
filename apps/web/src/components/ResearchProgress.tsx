@@ -1,29 +1,45 @@
-import type { InvestigationEvent } from '@proofline/contracts';
-import { AnimatePresence, motion } from 'framer-motion';
-import { Check, LoaderCircle, ShieldAlert } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
-import { demoEvents } from '../data/demo';
+import type { InvestigationStatus } from '@proofline/contracts';
+import { motion } from 'framer-motion';
+import { Check, LoaderCircle } from 'lucide-react';
 
 interface ResearchProgressProps {
   question: string;
-  onComplete: () => void;
+  status: InvestigationStatus;
 }
 
-export function ResearchProgress({ question, onComplete }: ResearchProgressProps) {
-  const [visibleCount, setVisibleCount] = useState(1);
-  const events = useMemo(() => demoEvents, []);
+const workflow = [
+  {
+    status: 'QUEUED' as const,
+    label: 'REQUEST QUEUED',
+    message: 'The live research job has been accepted.',
+    progress: 8,
+  },
+  {
+    status: 'RESEARCHING' as const,
+    label: 'SECURE RESEARCH',
+    message: 'Daytona is retrieving and extracting untrusted sources in isolation.',
+    progress: 55,
+  },
+  {
+    status: 'AUDITING' as const,
+    label: 'ADVERSARIAL AUDIT',
+    message: 'Evidence claims and counterclaims are being weighed.',
+    progress: 90,
+  },
+];
 
-  useEffect(() => {
-    if (visibleCount >= events.length) {
-      const finish = window.setTimeout(onComplete, 700);
-      return () => window.clearTimeout(finish);
-    }
-    const timer = window.setTimeout(() => setVisibleCount((count) => count + 1), 620);
-    return () => window.clearTimeout(timer);
-  }, [events.length, onComplete, visibleCount]);
+const statusRank: Record<InvestigationStatus, number> = {
+  QUEUED: 0,
+  RESEARCHING: 1,
+  AUDITING: 2,
+  COMPLETED: 3,
+  FAILED: 3,
+};
 
-  const visibleEvents = events.slice(0, visibleCount);
-  const current = visibleEvents[visibleEvents.length - 1] as InvestigationEvent;
+export function ResearchProgress({ question, status }: ResearchProgressProps) {
+  const activeIndex = Math.min(statusRank[status], workflow.length - 1);
+  const visibleEvents = workflow.slice(0, activeIndex + 1);
+  const current = workflow[activeIndex]!;
 
   return (
     <main className="research-progress-page">
@@ -50,7 +66,7 @@ export function ResearchProgress({ question, onComplete }: ResearchProgressProps
           </div>
           <div className="progress-meta">
             <span>{current.progress}% complete</span>
-            <span>Illustrative secure run</span>
+            <span>Live secure run</span>
           </div>
         </section>
 
@@ -60,29 +76,27 @@ export function ResearchProgress({ question, onComplete }: ResearchProgressProps
             <LoaderCircle size={16} className="spin" />
           </div>
           <div className="event-list">
-            <AnimatePresence initial={false}>
-              {visibleEvents.map((event, index) => (
-                <motion.div
-                  key={event.stage}
-                  initial={{ opacity: 0, y: 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={event.stage === 'INJECTION_BLOCKED' ? 'event-row danger' : 'event-row'}
-                >
-                  <span className="event-icon">
-                    {event.stage === 'INJECTION_BLOCKED' ? (
-                      <ShieldAlert size={14} />
-                    ) : (
-                      <Check size={14} />
-                    )}
-                  </span>
-                  <div>
-                    <strong>{event.stage.replaceAll('_', ' ')}</strong>
-                    <p>{event.message}</p>
-                  </div>
-                  <span className="event-index">{String(index + 1).padStart(2, '0')}</span>
-                </motion.div>
-              ))}
-            </AnimatePresence>
+            {visibleEvents.map((event, index) => (
+              <motion.div
+                key={event.status}
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="event-row"
+              >
+                <span className="event-icon">
+                  {index === activeIndex ? (
+                    <LoaderCircle size={14} className="spin" />
+                  ) : (
+                    <Check size={14} />
+                  )}
+                </span>
+                <div>
+                  <strong>{event.label}</strong>
+                  <p>{event.message}</p>
+                </div>
+                <span className="event-index">{String(index + 1).padStart(2, '0')}</span>
+              </motion.div>
+            ))}
           </div>
           <div className="agent-row">
             <span>

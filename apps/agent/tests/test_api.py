@@ -5,22 +5,26 @@ from app.main import app
 
 
 def test_demo_investigation_is_complete() -> None:
-    settings = get_settings()
-    client = TestClient(app)
-    response = client.post(
-        "/investigate",
-        headers={"Authorization": f"Bearer {settings.internal_agent_token}"},
-        json={
-            "investigation_id": "test-investigation",
-            "question": "Is this company ready for a two-year supplier agreement?",
-            "context": "",
-            "mode": "DEEP",
-        },
-    )
-    assert response.status_code == 200
-    body = response.json()
-    assert body["verdict"] == "INCONCLUSIVE"
-    assert body["securityEvents"][0]["category"] == "PROMPT_INJECTION"
+    settings = get_settings().model_copy(update={"demo_mode": True})
+    app.dependency_overrides[get_settings] = lambda: settings
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/investigate",
+            headers={"Authorization": f"Bearer {settings.internal_agent_token}"},
+            json={
+                "investigation_id": "test-investigation",
+                "question": "Is this company ready for a two-year supplier agreement?",
+                "context": "",
+                "mode": "DEEP",
+            },
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["verdict"] == "INCONCLUSIVE"
+        assert body["securityEvents"][0]["category"] == "PROMPT_INJECTION"
+    finally:
+        app.dependency_overrides.clear()
 
 
 def test_agent_requires_internal_authentication() -> None:

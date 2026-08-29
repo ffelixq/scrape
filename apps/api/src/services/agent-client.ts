@@ -28,7 +28,14 @@ export async function runAgentInvestigation(
     });
     if (!response.ok) {
       const body = await response.text();
-      throw new Error(`Agent service returned ${response.status}: ${body.slice(0, 200)}`);
+      let detail = body;
+      try {
+        const parsed = JSON.parse(body) as { detail?: string };
+        detail = parsed.detail ?? body;
+      } catch {
+        // Preserve plain-text errors from upstream proxies.
+      }
+      throw new Error(`Agent service returned ${response.status}: ${detail.slice(0, 300)}`);
     }
     return investigationSchema.parse(await response.json());
   } finally {

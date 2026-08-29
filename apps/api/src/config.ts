@@ -27,7 +27,7 @@ if (!parsed.success) {
 
 export const appConfig = {
   nodeEnv: parsed.data.NODE_ENV,
-  demoMode: parsed.data.DEMO_MODE,
+  demoMode: parsed.data.NODE_ENV === 'test' ? true : parsed.data.DEMO_MODE,
   port: parsed.data.API_PORT,
   corsOrigins: parsed.data.CORS_ORIGIN.split(',').map((origin) => origin.trim()),
   databaseUrl: parsed.data.DATABASE_URL,

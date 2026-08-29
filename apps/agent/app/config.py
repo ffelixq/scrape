@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-5-mini"
     google_api_key: str = ""
-    gemini_model: str = "gemini-2.5-pro"
+    gemini_model: str = "gemini-3.6-flash"
     kimi_api_key: str = ""
     kimi_base_url: str = "https://api.moonshot.ai/v1"
     kimi_model: str = "kimi-k2.5"

@@ -1,7 +1,8 @@
 import asyncio
+import re
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from rapidfuzz import process
+from rapidfuzz import fuzz, process
 
 from app.config import Settings
 from app.models import (
@@ -26,14 +27,26 @@ from app.research.security import quote_untrusted
 SUPPORT_PROMPT = """
 Act as the supporting research agent. Find the strongest evidence that would support the user's
 proposition, but do not advocate beyond the evidence. Prefer primary sources, exact excerpts, and
-current dates. Explain missing support. Return only source URLs included in the evidence bundle.
+current dates. Every finding must contain one atomic claim and a verbatim excerpt that contains all
+numbers and dates asserted by that claim. Explain missing support. Return only source URLs included
+in the evidence bundle.
 """
 
 SKEPTIC_PROMPT = """
 Act as an adversarial skeptic running on independent Nosana GPU compute. Try to prove the proposed
 conclusion wrong. Search the supplied evidence for counterexamples, newer disclosures, definition
 changes, copied claims, weak provenance, and absent primary support. Do not invent contradictions.
-Return only source URLs included in the evidence bundle.
+Every finding must contain one atomic claim and a verbatim excerpt that contains all numbers and
+dates asserted by that claim. Return only source URLs included in the evidence bundle.
+"""
+
+FALLBACK_SKEPTIC_PROMPT = """
+Act as an adversarial skeptic. The independent Nosana inference endpoint is temporarily unavailable,
+so this is a disclosed continuity fallback on the primary model provider. Try to prove the proposed
+conclusion wrong. Search the supplied evidence for counterexamples, newer disclosures, definition
+changes, copied claims, weak provenance, and absent primary support. Do not invent contradictions.
+Every finding must contain one atomic claim and a verbatim excerpt that contains all numbers and
+dates asserted by that claim. Return only source URLs included in the evidence bundle.
 """
 
 AUDITOR_PROMPT = """
@@ -42,6 +55,11 @@ bundle. Authority is an indicator, never proof. Ten derivative pages count as on
 date, currency, definition, period, and methodology differences instead of averaging conflicts.
 Use UNVERIFIABLE or INCONCLUSIVE whenever the available evidence cannot support a decision. The
 answer must be concise, decision-useful, and explicit about what evidence would change the verdict.
+For investment questions, distinguish financial health from valuation and personal suitability. Do
+not call an asset a good or bad investment solely from business health. A source URL may be attached
+to a claim only when its quoted excerpt directly supports or opposes that exact claim.
+Keep audited claims atomic: do not combine multiple metrics, periods, events, or sources into one
+claim unless one verbatim excerpt contains every asserted number and date.
 """
 
 
@@ -76,7 +94,7 @@ def _find_source(url: str, source_by_url: dict[str, SourceRecord]) -> SourceReco
 
 def _strength(evidence: list[EvidenceRecord], sources: dict[str, SourceRecord]) -> int:
     if not evidence:
-        return 18
+        return 0
     weights = [item.weight for item in evidence]
     groups = {
         sources[item.sourceId].independenceGroup for item in evidence if item.sourceId in sources
@@ -87,14 +105,156 @@ def _strength(evidence: list[EvidenceRecord], sources: dict[str, SourceRecord]) 
 
 
 def _best_excerpt(
-    url: str,
-    findings: list,
     source: SourceRecord,
-) -> tuple[str, str]:
-    for finding in findings:
-        if finding.source_url.rstrip("/") == url.rstrip("/"):
-            return finding.excerpt[:1_200], finding.location[:250]
-    return source.excerpt, "Source excerpt"
+    source_by_url: dict[str, SourceRecord],
+    findings: list,
+    claim_text: str,
+    document_text: str,
+) -> tuple[str, str] | None:
+    normalized_document = re.sub(r"\s+", " ", document_text).strip().lower()
+    source_lines = [
+        re.sub(r"\s+", " ", line).strip()
+        for line in document_text.splitlines()
+        if len(line.strip()) >= 8
+    ]
+    source_windows: list[str] = []
+    for index in range(len(source_lines)):
+        window = ""
+        for line in source_lines[index : index + 4]:
+            window = f"{window} {line}".strip()
+            if len(window) > 1_600:
+                break
+            source_windows.append(window)
+    matching_findings = [
+        finding
+        for finding in findings
+        if (finding_source := _find_source(finding.source_url, source_by_url)) is not None
+        and finding_source.id == source.id
+    ]
+    matching_findings.sort(
+        key=lambda finding: fuzz.token_set_ratio(claim_text, finding.claim),
+        reverse=True,
+    )
+    for finding in matching_findings:
+        if fuzz.token_set_ratio(claim_text, finding.claim) < 48:
+            continue
+        normalized_excerpt = re.sub(r"\s+", " ", finding.excerpt).strip().lower()
+        if len(normalized_excerpt) < 40:
+            continue
+        claim_for_numbers = re.sub(
+            r"\b\d{1,2}\s+(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|"
+            r"jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|"
+            r"nov(?:ember)?|dec(?:ember)?)\b",
+            "",
+            claim_text,
+            flags=re.IGNORECASE,
+        )
+        claim_numbers = {
+            token
+            for token in re.findall(
+                r"\b\d+(?:\.\d+)?%?\b",
+                claim_for_numbers.replace(",", ""),
+            )
+            if not (token.isdigit() and int(token) <= 4)
+        }
+        anchored_excerpt = finding.excerpt
+        if normalized_excerpt not in normalized_document:
+            numeric_windows = [
+                window
+                for window in source_windows
+                if claim_numbers.issubset(
+                    set(
+                        re.findall(
+                            r"\b\d+(?:\.\d+)?%?\b",
+                            f"{window} {source.publishedAt or ''}".replace(",", ""),
+                        )
+                    )
+                )
+            ]
+            anchor_match = process.extractOne(
+                finding.excerpt,
+                numeric_windows,
+                scorer=fuzz.WRatio,
+                score_cutoff=65,
+            )
+            if not anchor_match:
+                continue
+            anchored_excerpt = anchor_match[0]
+        excerpt_numbers = set(
+            re.findall(
+                r"\b\d+(?:\.\d+)?%?\b",
+                f"{anchored_excerpt} {source.publishedAt or ''}".replace(",", ""),
+            )
+        )
+        if not claim_numbers.issubset(excerpt_numbers):
+            continue
+        return anchored_excerpt[:1_200], finding.location[:250]
+    return None
+
+
+def _gated_claim_status(
+    requested_status: str,
+    claim_evidence: list[EvidenceRecord],
+    sources: dict[str, SourceRecord],
+    strength: int,
+) -> str:
+    supporting = [item for item in claim_evidence if item.relation == "SUPPORTS"]
+    opposing = [item for item in claim_evidence if item.relation == "OPPOSES"]
+    if requested_status in {"SUPPORTED", "WELL_SUPPORTED"} and not supporting:
+        return "UNVERIFIABLE"
+    if requested_status in {"CONTRADICTED", "LIKELY_FALSE"} and not opposing:
+        return "UNVERIFIABLE"
+    if requested_status == "WELL_SUPPORTED":
+        groups = {
+            sources[item.sourceId].independenceGroup
+            for item in supporting
+            if item.sourceId in sources
+        }
+        has_high_quality = any(
+            sources[item.sourceId].tier in {"PRIMARY", "AUTHORITATIVE"}
+            for item in supporting
+            if item.sourceId in sources
+        )
+        if strength < 70 or len(groups) < 2 or not has_high_quality:
+            return "SUPPORTED" if strength >= 50 else "INCONCLUSIVE"
+    if requested_status == "SUPPORTED" and strength < 45:
+        return "INCONCLUSIVE"
+    return requested_status
+
+
+def _final_answer(verdict: str, question: str, claims: list[ClaimRecord]) -> str:
+    supported = [
+        claim.text for claim in claims if claim.status in {"SUPPORTED", "WELL_SUPPORTED"}
+    ]
+    challenged = [
+        claim.text for claim in claims if claim.status in {"CONTRADICTED", "LIKELY_FALSE"}
+    ]
+    unverified = [
+        claim.text for claim in claims if claim.status in {"UNVERIFIABLE", "INCONCLUSIVE"}
+    ]
+
+    if verdict in {"UNVERIFIABLE", "INCONCLUSIVE"}:
+        parts = [
+            "The available validated evidence is insufficient to answer the investigation "
+            "question conclusively."
+        ]
+    else:
+        parts = [f"The validated evidence status is {verdict.replace('_', ' ').lower()}."]
+    if supported:
+        findings = "; ".join(item.rstrip(". ") for item in supported[:3])
+        parts.append(f"Validated citations support: {findings}.")
+    if challenged:
+        findings = "; ".join(item.rstrip(". ") for item in challenged[:2])
+        parts.append(f"Validated opposing evidence challenges: {findings}.")
+    if unverified:
+        findings = "; ".join(item.rstrip(". ") for item in unverified[:2])
+        parts.append(f"The investigation could not verify: {findings}.")
+    if "invest" in question.lower():
+        parts.append(
+            "Financial health alone does not establish investment attractiveness, valuation, or "
+            "personal suitability."
+        )
+    return " ".join(parts)
 
 
 class ResearchOrchestrator:
@@ -125,21 +285,75 @@ class ResearchOrchestrator:
         provenance = build_provenance(documents, request.investigation_id)
         bundle = _evidence_bundle(request.question, documents)
         primary_llm = get_llm(self.settings)
-        nosana_skeptic = get_nosana_llm(self.settings)
+        runtime_limitations: list[str] = []
 
-        supporter, skeptic = await asyncio.gather(
+        try:
+            nosana_skeptic = get_nosana_llm(self.settings)
+            skeptic_task = asyncio.wait_for(
+                nosana_skeptic.parse(SKEPTIC_PROMPT, bundle, AgentFindings),
+                timeout=25,
+            )
+        except Exception:
+            skeptic_task = None
+
+        results = await asyncio.gather(
             primary_llm.parse(SUPPORT_PROMPT, bundle, AgentFindings),
-            nosana_skeptic.parse(SKEPTIC_PROMPT, bundle, AgentFindings),
+            skeptic_task if skeptic_task is not None else asyncio.sleep(0, result=None),
+            return_exceptions=True,
+        )
+        supporter_result, skeptic_result = results
+        if isinstance(supporter_result, BaseException):
+            raise supporter_result
+        supporter = supporter_result
+
+        used_nosana_fallback = skeptic_task is None or isinstance(skeptic_result, BaseException)
+        if used_nosana_fallback:
+            skeptic = await primary_llm.parse(
+                FALLBACK_SKEPTIC_PROMPT,
+                bundle,
+                AgentFindings,
+            )
+            runtime_limitations.append(
+                "The independent Nosana skeptic endpoint was unavailable during this run; "
+                "the adversarial review used Gemini as a disclosed continuity fallback."
+            )
+        else:
+            skeptic = skeptic_result
+
+        skeptic_label = (
+            "NOSANA" if not used_nosana_fallback else "GEMINI FALLBACK; NOSANA UNAVAILABLE"
         )
         audit_input = (
             f"{bundle}\n\nSUPPORTER REPORT:\n{supporter.model_dump_json()}"
-            f"\n\nSKEPTIC REPORT (NOSANA):\n{skeptic.model_dump_json()}"
+            f"\n\nSKEPTIC REPORT ({skeptic_label}):\n{skeptic.model_dump_json()}"
         )
         audit = await primary_llm.parse(AUDITOR_PROMPT, audit_input, AuditDecision)
-        return self._assemble(request, provenance, documents, supporter, skeptic, audit)
+        return self._assemble(
+            request,
+            provenance,
+            documents,
+            supporter,
+            skeptic,
+            audit,
+            runtime_limitations,
+        )
 
-    def _assemble(self, request, provenance, documents, supporter, skeptic, audit):
+    def _assemble(
+        self,
+        request,
+        provenance,
+        documents,
+        supporter,
+        skeptic,
+        audit,
+        runtime_limitations,
+    ):
         source_by_id = {source.id: source for source in provenance.sources}
+        document_by_source_id: dict[str, ScrapedDocument] = {}
+        for document in documents:
+            source = _find_source(str(document.final_url), provenance.source_by_url)
+            if source:
+                document_by_source_id[source.id] = document
         all_findings = [*supporter.findings, *skeptic.findings]
         claims: list[ClaimRecord] = []
         evidence: list[EvidenceRecord] = []
@@ -158,7 +372,19 @@ class ResearchOrchestrator:
                     if not source or (source.id, relation) in seen:
                         continue
                     seen.add((source.id, relation))
-                    excerpt, location = _best_excerpt(url, all_findings, source)
+                    document = document_by_source_id.get(source.id)
+                    if not document:
+                        continue
+                    validated_excerpt = _best_excerpt(
+                        source,
+                        provenance.source_by_url,
+                        all_findings,
+                        audited_claim.text,
+                        document.text,
+                    )
+                    if not validated_excerpt:
+                        continue
+                    excerpt, location = validated_excerpt
                     evidence.append(
                         EvidenceRecord(
                             id=str(uuid4()),
@@ -175,13 +401,25 @@ class ResearchOrchestrator:
                         )
                     )
             claim_evidence = [item for item in evidence if item.claimId == claim_id]
+            claim_strength = _strength(claim_evidence, source_by_id)
+            gated_status = _gated_claim_status(
+                audited_claim.status,
+                claim_evidence,
+                source_by_id,
+                claim_strength,
+            )
             claims.append(
                 ClaimRecord(
                     id=claim_id,
                     text=audited_claim.text,
-                    status=audited_claim.status,
-                    evidenceStrength=_strength(claim_evidence, source_by_id),
-                    rationale=audited_claim.rationale,
+                    status=gated_status,
+                    evidenceStrength=claim_strength,
+                    rationale=(
+                        audited_claim.rationale
+                        if gated_status == audited_claim.status
+                        else "The model proposed this claim, but no sufficiently complete exact "
+                        "citation passed Proofline's deterministic evidence gate."
+                    ),
                     supportCount=sum(item.relation == "SUPPORTS" for item in claim_evidence),
                     opposeCount=sum(item.relation == "OPPOSES" for item in claim_evidence),
                 )
@@ -229,21 +467,53 @@ class ResearchOrchestrator:
             )
 
         score = round(sum(claim.evidenceStrength for claim in claims) / max(1, len(claims)))
-        score = max(10, score - min(20, len(audit.limitations) * 3))
+        score = max(
+            0 if not evidence else 10,
+            score - min(20, (len(audit.limitations) + len(runtime_limitations)) * 3),
+        )
+        limitations = list(
+            dict.fromkeys(
+                [
+                    *runtime_limitations,
+                    *audit.limitations,
+                    *supporter.missing_evidence,
+                    *skeptic.missing_evidence,
+                ]
+            )
+        )
+        verdict = audit.verdict
+        primary_count = sum(source.isPrimary for source in provenance.sources)
+        independent_count = independent_source_count(provenance.sources)
+        if verdict == "WELL_SUPPORTED" and (
+            score < 70 or primary_count == 0 or independent_count < 2
+        ):
+            verdict = "SUPPORTED" if score >= 55 else "INCONCLUSIVE"
+        elif verdict == "SUPPORTED" and score < 45:
+            verdict = "INCONCLUSIVE"
+        if verdict != audit.verdict:
+            limitations.insert(
+                0,
+                "Proofline's deterministic evidence gate downgraded the model's initial verdict "
+                "because the validated citations, source quality, or independence were "
+                "insufficient.",
+            )
+        answer = _final_answer(verdict, request.question, claims)
+        supported_claims = [
+            claim.text for claim in claims if claim.status in {"SUPPORTED", "WELL_SUPPORTED"}
+        ]
+        challenged_claims = [
+            claim.text for claim in claims if claim.status in {"CONTRADICTED", "LIKELY_FALSE"}
+        ]
         return InvestigationResult(
             id=request.investigation_id,
             question=request.question,
             status="COMPLETED",
-            verdict=audit.verdict,
-            answer=audit.answer,
+            verdict=verdict,
+            answer=answer,
             evidenceStrength=score,
             createdAt=utc_now(),
             completedAt=utc_now(),
-            limitations=[
-                *audit.limitations,
-                *supporter.missing_evidence,
-                *skeptic.missing_evidence,
-            ],
+            limitations=limitations,
             sources=provenance.sources,
             claims=claims,
             evidence=evidence,
@@ -251,15 +521,23 @@ class ResearchOrchestrator:
             securityEvents=security_events,
             metrics={
                 "sourcesChecked": len(documents),
-                "independentSources": independent_source_count(provenance.sources),
-                "primarySources": sum(source.isPrimary for source in provenance.sources),
+                "independentSources": independent_count,
+                "primarySources": primary_count,
                 "contradictions": len(contradictions),
                 "falseConsensusClusters": provenance.false_consensus_clusters,
             },
             audit={
-                "supportingAgentSummary": supporter.summary,
-                "opposingAgentSummary": skeptic.summary,
-                "auditorSummary": audit.auditor_summary,
+                "supportingAgentSummary": (
+                    "; ".join(supported_claims)
+                    if supported_claims
+                    else "No supporting claim passed citation validation."
+                ),
+                "opposingAgentSummary": (
+                    "; ".join(challenged_claims)
+                    if challenged_claims
+                    else "No opposing claim passed citation validation."
+                ),
+                "auditorSummary": answer,
             },
         )
 
@@ -270,7 +548,7 @@ class ResearchOrchestrator:
             status="COMPLETED",
             verdict="UNVERIFIABLE",
             answer="Insufficient independent evidence was found to verify this claim.",
-            evidenceStrength=12,
+            evidenceStrength=0,
             createdAt=utc_now(),
             completedAt=utc_now(),
             limitations=[reason],
