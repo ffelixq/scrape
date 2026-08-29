@@ -1,0 +1,148 @@
+import { z } from 'zod';
+
+export const evidenceStatusSchema = z.enum([
+  'SUPPORTED',
+  'WELL_SUPPORTED',
+  'INCONCLUSIVE',
+  'CONTRADICTED',
+  'LIKELY_FALSE',
+  'UNVERIFIABLE',
+]);
+
+export const investigationStatusSchema = z.enum([
+  'QUEUED',
+  'RESEARCHING',
+  'AUDITING',
+  'COMPLETED',
+  'FAILED',
+]);
+
+export const sourceTierSchema = z.enum(['PRIMARY', 'AUTHORITATIVE', 'SECONDARY', 'LOW']);
+
+export const evidenceRelationSchema = z.enum(['SUPPORTS', 'OPPOSES', 'CONTEXT']);
+
+export const createInvestigationSchema = z.object({
+  question: z
+    .string()
+    .trim()
+    .min(12, 'Ask a specific research question (at least 12 characters).')
+    .max(2_000),
+  context: z.string().trim().max(4_000).optional().default(''),
+  mode: z.enum(['STANDARD', 'DEEP']).optional().default('STANDARD'),
+});
+
+export const sourceSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  publisher: z.string(),
+  url: z.string().url(),
+  publishedAt: z.string().nullable(),
+  accessedAt: z.string(),
+  tier: sourceTierSchema,
+  reliabilityScore: z.number().min(0).max(100),
+  independenceGroup: z.string(),
+  isPrimary: z.boolean(),
+  isDuplicate: z.boolean(),
+  excerpt: z.string(),
+});
+
+export const evidenceSchema = z.object({
+  id: z.string(),
+  claimId: z.string(),
+  sourceId: z.string(),
+  relation: evidenceRelationSchema,
+  excerpt: z.string(),
+  location: z.string(),
+  weight: z.number().min(0).max(1),
+});
+
+export const claimSchema = z.object({
+  id: z.string(),
+  text: z.string(),
+  status: evidenceStatusSchema,
+  evidenceStrength: z.number().min(0).max(100),
+  rationale: z.string(),
+  supportCount: z.number().int().nonnegative(),
+  opposeCount: z.number().int().nonnegative(),
+});
+
+export const contradictionSchema = z.object({
+  id: z.string(),
+  claimId: z.string(),
+  summary: z.string(),
+  resolution: z.string(),
+  reason: z.enum([
+    'DATE',
+    'DEFINITION',
+    'CURRENCY',
+    'REPORTING_PERIOD',
+    'METHODOLOGY',
+    'UNRESOLVED',
+  ]),
+  sourceIds: z.array(z.string()),
+});
+
+export const securityEventSchema = z.object({
+  id: z.string(),
+  severity: z.enum(['INFO', 'WARNING', 'BLOCKED']),
+  category: z.enum(['PROMPT_INJECTION', 'MALICIOUS_FILE', 'NETWORK_POLICY', 'CONTENT_LIMIT']),
+  message: z.string(),
+  sourceId: z.string().nullable(),
+  detectedAt: z.string(),
+});
+
+export const investigationSchema = z.object({
+  id: z.string(),
+  question: z.string(),
+  status: investigationStatusSchema,
+  verdict: evidenceStatusSchema.nullable(),
+  answer: z.string().nullable(),
+  evidenceStrength: z.number().min(0).max(100),
+  createdAt: z.string(),
+  completedAt: z.string().nullable(),
+  limitations: z.array(z.string()),
+  sources: z.array(sourceSchema),
+  claims: z.array(claimSchema),
+  evidence: z.array(evidenceSchema),
+  contradictions: z.array(contradictionSchema),
+  securityEvents: z.array(securityEventSchema),
+  metrics: z.object({
+    sourcesChecked: z.number().int().nonnegative(),
+    independentSources: z.number().int().nonnegative(),
+    primarySources: z.number().int().nonnegative(),
+    contradictions: z.number().int().nonnegative(),
+    falseConsensusClusters: z.number().int().nonnegative(),
+  }),
+  audit: z.object({
+    supportingAgentSummary: z.string(),
+    opposingAgentSummary: z.string(),
+    auditorSummary: z.string(),
+  }),
+});
+
+export const investigationEventSchema = z.object({
+  investigationId: z.string(),
+  stage: z.enum([
+    'QUEUED',
+    'SANDBOX_CREATED',
+    'SOURCES_DISCOVERED',
+    'INJECTION_BLOCKED',
+    'CLAIMS_EXTRACTED',
+    'ADVERSARIAL_REVIEW',
+    'AUDIT_COMPLETE',
+  ]),
+  message: z.string(),
+  progress: z.number().min(0).max(100),
+  at: z.string(),
+});
+
+export type EvidenceStatus = z.infer<typeof evidenceStatusSchema>;
+export type InvestigationStatus = z.infer<typeof investigationStatusSchema>;
+export type Source = z.infer<typeof sourceSchema>;
+export type Evidence = z.infer<typeof evidenceSchema>;
+export type Claim = z.infer<typeof claimSchema>;
+export type Contradiction = z.infer<typeof contradictionSchema>;
+export type SecurityEvent = z.infer<typeof securityEventSchema>;
+export type Investigation = z.infer<typeof investigationSchema>;
+export type InvestigationEvent = z.infer<typeof investigationEventSchema>;
+export type CreateInvestigationInput = z.infer<typeof createInvestigationSchema>;

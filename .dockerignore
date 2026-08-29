@@ -1,0 +1,15 @@
+.git
+.github
+.openai
+.venv
+.env
+.env.*
+!.env.example
+**/node_modules
+**/dist
+**/.next
+**/.vinext
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+*.log

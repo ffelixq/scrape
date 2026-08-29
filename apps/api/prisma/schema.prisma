@@ -1,0 +1,134 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum InvestigationStatus {
+  QUEUED
+  RESEARCHING
+  AUDITING
+  COMPLETED
+  FAILED
+}
+
+enum EvidenceStatus {
+  SUPPORTED
+  WELL_SUPPORTED
+  INCONCLUSIVE
+  CONTRADICTED
+  LIKELY_FALSE
+  UNVERIFIABLE
+}
+
+enum SourceTier {
+  PRIMARY
+  AUTHORITATIVE
+  SECONDARY
+  LOW
+}
+
+enum EvidenceRelation {
+  SUPPORTS
+  OPPOSES
+  CONTEXT
+}
+
+model Investigation {
+  id               String              @id @default(uuid())
+  question         String
+  context          String              @default("")
+  mode             String              @default("STANDARD")
+  status           InvestigationStatus @default(QUEUED)
+  verdict          EvidenceStatus?
+  answer           String?
+  evidenceStrength Int                 @default(0)
+  limitations      String[]
+  resultJson       Json?
+  failureReason    String?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  completedAt      DateTime?
+  sources          Source[]
+  claims           Claim[]
+  securityEvents   SecurityEvent[]
+
+  @@index([status, createdAt])
+}
+
+model Source {
+  id                String        @id
+  investigationId   String
+  investigation     Investigation @relation(fields: [investigationId], references: [id], onDelete: Cascade)
+  title             String
+  publisher         String
+  url               String
+  publishedAt       DateTime?
+  accessedAt        DateTime
+  tier              SourceTier
+  reliabilityScore  Int
+  independenceGroup String
+  isPrimary         Boolean
+  isDuplicate       Boolean
+  excerpt           String
+  contentHash       String?
+  evidence          Evidence[]
+
+  @@index([investigationId, independenceGroup])
+}
+
+model Claim {
+  id               String        @id
+  investigationId  String
+  investigation    Investigation @relation(fields: [investigationId], references: [id], onDelete: Cascade)
+  text             String
+  status           EvidenceStatus
+  evidenceStrength Int
+  rationale        String
+  supportCount     Int
+  opposeCount      Int
+  evidence         Evidence[]
+  contradictions   Contradiction[]
+
+  @@index([investigationId])
+}
+
+model Evidence {
+  id        String           @id
+  claimId   String
+  claim     Claim            @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  sourceId  String
+  source    Source           @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+  relation  EvidenceRelation
+  excerpt   String
+  location  String
+  weight    Float
+
+  @@unique([claimId, sourceId, relation])
+}
+
+model Contradiction {
+  id         String @id
+  claimId    String
+  claim      Claim  @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  summary    String
+  resolution String
+  reason     String
+  sourceIds  String[]
+}
+
+model SecurityEvent {
+  id              String        @id
+  investigationId String
+  investigation   Investigation @relation(fields: [investigationId], references: [id], onDelete: Cascade)
+  severity        String
+  category        String
+  message         String
+  sourceId        String?
+  detectedAt      DateTime
+
+  @@index([investigationId])
+}

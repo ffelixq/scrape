@@ -1,0 +1,318 @@
+import type { Investigation, InvestigationEvent } from '@proofline/contracts';
+
+export const DEMO_QUESTION =
+  'Is Meridian Solar Pte. Ltd. financially healthy enough for a two-year supplier contract?';
+
+export const demoInvestigation: Investigation = {
+  id: 'demo-meridian-2026-08-29',
+  question: DEMO_QUESTION,
+  status: 'COMPLETED',
+  verdict: 'INCONCLUSIVE',
+  answer:
+    'Meridian’s audited FY2025 revenue growth is well supported, but the available evidence does not establish that it can safely meet a two-year supply commitment. Its current-ratio disclosure conflicts with a later lender notice, and no independent source verifies the claimed Tier-1 certification. A current bank reference and regulator-issued certification record are required before approval.',
+  evidenceStrength: 61,
+  createdAt: '2026-08-29T02:14:12.000Z',
+  completedAt: '2026-08-29T02:18:49.000Z',
+  limitations: [
+    'No access to Meridian’s private bank statements or current accounts-receivable ageing.',
+    'The latest audited filing covers the year ending 31 December 2025.',
+    'The supplier certification registry was unavailable during one verification attempt.',
+  ],
+  metrics: {
+    sourcesChecked: 14,
+    independentSources: 6,
+    primarySources: 3,
+    contradictions: 2,
+    falseConsensusClusters: 1,
+  },
+  sources: [
+    {
+      id: 'src-acra',
+      title: 'FY2025 audited financial statements',
+      publisher: 'Corporate Registry Filing',
+      url: 'https://example.com/demo/registry-filing',
+      publishedAt: '2026-04-12T00:00:00.000Z',
+      accessedAt: '2026-08-29T02:15:08.000Z',
+      tier: 'PRIMARY',
+      reliabilityScore: 94,
+      independenceGroup: 'registry-filing-2025',
+      isPrimary: true,
+      isDuplicate: false,
+      excerpt:
+        'Audited revenue was SGD 48.2 million, compared with SGD 39.4 million in the prior financial year.',
+    },
+    {
+      id: 'src-bank',
+      title: 'Notice of covenant review',
+      publisher: 'Lender Disclosure Portal',
+      url: 'https://example.com/demo/lender-notice',
+      publishedAt: '2026-07-18T00:00:00.000Z',
+      accessedAt: '2026-08-29T02:15:31.000Z',
+      tier: 'PRIMARY',
+      reliabilityScore: 91,
+      independenceGroup: 'lender-july-2026',
+      isPrimary: true,
+      isDuplicate: false,
+      excerpt:
+        'The borrower entered a 60-day review after falling below the minimum liquidity covenant measured on 30 June 2026.',
+    },
+    {
+      id: 'src-procurement',
+      title: 'Approved vendor search result',
+      publisher: 'Public Procurement Registry',
+      url: 'https://example.com/demo/vendor-registry',
+      publishedAt: '2026-08-28T00:00:00.000Z',
+      accessedAt: '2026-08-29T02:16:04.000Z',
+      tier: 'PRIMARY',
+      reliabilityScore: 96,
+      independenceGroup: 'procurement-registry',
+      isPrimary: true,
+      isDuplicate: false,
+      excerpt:
+        'No active Tier-1 solar component certification was returned for the entity identifier provided.',
+    },
+    {
+      id: 'src-trade',
+      title: 'Meridian Solar reports record expansion year',
+      publisher: 'Asia Energy Ledger',
+      url: 'https://example.com/demo/trade-publication',
+      publishedAt: '2026-04-15T00:00:00.000Z',
+      accessedAt: '2026-08-29T02:16:20.000Z',
+      tier: 'SECONDARY',
+      reliabilityScore: 68,
+      independenceGroup: 'meridian-press-release-april',
+      isPrimary: false,
+      isDuplicate: true,
+      excerpt:
+        'The company said revenue rose 22% and described itself as a certified Tier-1 supplier.',
+    },
+    {
+      id: 'src-blog',
+      title: 'Five solar suppliers to watch in Southeast Asia',
+      publisher: 'CleanTech Signal',
+      url: 'https://example.com/demo/industry-blog',
+      publishedAt: '2026-05-03T00:00:00.000Z',
+      accessedAt: '2026-08-29T02:16:34.000Z',
+      tier: 'LOW',
+      reliabilityScore: 34,
+      independenceGroup: 'meridian-press-release-april',
+      isPrimary: false,
+      isDuplicate: true,
+      excerpt: 'Meridian is described as Tier-1, citing a company announcement published in April.',
+    },
+    {
+      id: 'src-credit',
+      title: 'Quarterly supplier credit pulse',
+      publisher: 'Southeast Asia Credit Monitor',
+      url: 'https://example.com/demo/credit-monitor',
+      publishedAt: '2026-08-02T00:00:00.000Z',
+      accessedAt: '2026-08-29T02:16:50.000Z',
+      tier: 'AUTHORITATIVE',
+      reliabilityScore: 81,
+      independenceGroup: 'credit-monitor-q3',
+      isPrimary: false,
+      isDuplicate: false,
+      excerpt:
+        'Payment times moved from 47 to 71 days over two quarters, a material deterioration versus peers.',
+    },
+  ],
+  claims: [
+    {
+      id: 'claim-revenue',
+      text: 'FY2025 revenue increased by approximately 22.4%.',
+      status: 'WELL_SUPPORTED',
+      evidenceStrength: 92,
+      rationale:
+        'The figure is calculated from audited comparative statements and independently restated by a credit monitor.',
+      supportCount: 3,
+      opposeCount: 0,
+    },
+    {
+      id: 'claim-liquidity',
+      text: 'Meridian has sufficient short-term liquidity for a two-year commitment.',
+      status: 'CONTRADICTED',
+      evidenceStrength: 74,
+      rationale:
+        'Year-end liquidity was positive, but a more recent lender notice reports a covenant breach.',
+      supportCount: 1,
+      opposeCount: 2,
+    },
+    {
+      id: 'claim-certification',
+      text: 'Meridian is currently certified as a Tier-1 component supplier.',
+      status: 'LIKELY_FALSE',
+      evidenceStrength: 78,
+      rationale:
+        'Four apparent confirmations trace back to one company press release; the public registry returned no active record.',
+      supportCount: 1,
+      opposeCount: 1,
+    },
+    {
+      id: 'claim-enforcement',
+      text: 'There are no active regulatory or enforcement actions.',
+      status: 'UNVERIFIABLE',
+      evidenceStrength: 28,
+      rationale: 'Absence from the sources searched cannot establish that no action exists.',
+      supportCount: 0,
+      opposeCount: 0,
+    },
+  ],
+  evidence: [
+    {
+      id: 'ev-1',
+      claimId: 'claim-revenue',
+      sourceId: 'src-acra',
+      relation: 'SUPPORTS',
+      excerpt: 'Revenue: SGD 48.2m (FY2025); SGD 39.4m (FY2024).',
+      location: 'Financial statements, note 4, p. 38',
+      weight: 0.96,
+    },
+    {
+      id: 'ev-2',
+      claimId: 'claim-revenue',
+      sourceId: 'src-credit',
+      relation: 'SUPPORTS',
+      excerpt: 'Reported annual revenue growth remained above 20%.',
+      location: 'Supplier profile, p. 12',
+      weight: 0.72,
+    },
+    {
+      id: 'ev-3',
+      claimId: 'claim-liquidity',
+      sourceId: 'src-acra',
+      relation: 'SUPPORTS',
+      excerpt: 'Current assets exceeded current liabilities at year end.',
+      location: 'Balance sheet, p. 14',
+      weight: 0.79,
+    },
+    {
+      id: 'ev-4',
+      claimId: 'claim-liquidity',
+      sourceId: 'src-bank',
+      relation: 'OPPOSES',
+      excerpt: 'Borrower fell below the minimum liquidity covenant on 30 June 2026.',
+      location: 'Covenant notice, para. 3',
+      weight: 0.94,
+    },
+    {
+      id: 'ev-5',
+      claimId: 'claim-liquidity',
+      sourceId: 'src-credit',
+      relation: 'OPPOSES',
+      excerpt: 'Median payment time increased to 71 days.',
+      location: 'Payment history, p. 13',
+      weight: 0.73,
+    },
+    {
+      id: 'ev-6',
+      claimId: 'claim-certification',
+      sourceId: 'src-trade',
+      relation: 'SUPPORTS',
+      excerpt: 'The company described itself as a certified Tier-1 supplier.',
+      location: 'Article body, para. 5',
+      weight: 0.31,
+    },
+    {
+      id: 'ev-7',
+      claimId: 'claim-certification',
+      sourceId: 'src-procurement',
+      relation: 'OPPOSES',
+      excerpt: 'No active certification returned for the entity identifier.',
+      location: 'Registry result',
+      weight: 0.91,
+    },
+  ],
+  contradictions: [
+    {
+      id: 'contra-1',
+      claimId: 'claim-liquidity',
+      summary:
+        'The FY2025 report shows adequate year-end liquidity; a June 2026 notice reports a later covenant breach.',
+      resolution:
+        'The difference is date-driven. The more recent disclosure is more relevant to a current procurement decision.',
+      reason: 'DATE',
+      sourceIds: ['src-acra', 'src-bank'],
+    },
+    {
+      id: 'contra-2',
+      claimId: 'claim-certification',
+      summary:
+        'Trade coverage repeats Tier-1 status, while the official registry returns no active certification.',
+      resolution:
+        'The positive references are not independent and do not identify a certifying body. Treat as unverified pending a certificate number.',
+      reason: 'METHODOLOGY',
+      sourceIds: ['src-procurement', 'src-trade', 'src-blog'],
+    },
+  ],
+  securityEvents: [
+    {
+      id: 'sec-1',
+      severity: 'BLOCKED',
+      category: 'PROMPT_INJECTION',
+      message:
+        'Potential prompt injection detected — content isolated — research continued safely.',
+      sourceId: 'src-blog',
+      detectedAt: '2026-08-29T02:16:36.000Z',
+    },
+  ],
+  audit: {
+    supportingAgentSummary:
+      'Audited growth, positive FY2025 working capital, and continued customer wins support financial capacity.',
+    opposingAgentSummary:
+      'The June covenant review, slower payments, and unverifiable certification materially weaken the case.',
+    auditorSummary:
+      'The evidence supports growth, not present liquidity. The procurement decision cannot be verified as safe without current private financial evidence.',
+  },
+};
+
+export const demoEvents: InvestigationEvent[] = [
+  {
+    investigationId: demoInvestigation.id,
+    stage: 'QUEUED',
+    message: 'Research brief decomposed into four verifiable claims',
+    progress: 8,
+    at: '2026-08-29T02:14:12.000Z',
+  },
+  {
+    investigationId: demoInvestigation.id,
+    stage: 'SANDBOX_CREATED',
+    message: 'Disposable Daytona research computer created',
+    progress: 20,
+    at: '2026-08-29T02:14:13.000Z',
+  },
+  {
+    investigationId: demoInvestigation.id,
+    stage: 'SOURCES_DISCOVERED',
+    message: '14 sources inspected; 6 independent origins identified',
+    progress: 42,
+    at: '2026-08-29T02:15:46.000Z',
+  },
+  {
+    investigationId: demoInvestigation.id,
+    stage: 'INJECTION_BLOCKED',
+    message: 'Untrusted instruction isolated from one webpage',
+    progress: 55,
+    at: '2026-08-29T02:16:36.000Z',
+  },
+  {
+    investigationId: demoInvestigation.id,
+    stage: 'CLAIMS_EXTRACTED',
+    message: 'Evidence linked to claims with exact source locations',
+    progress: 68,
+    at: '2026-08-29T02:17:07.000Z',
+  },
+  {
+    investigationId: demoInvestigation.id,
+    stage: 'ADVERSARIAL_REVIEW',
+    message: 'Skeptic agent found two material contradictions',
+    progress: 84,
+    at: '2026-08-29T02:18:08.000Z',
+  },
+  {
+    investigationId: demoInvestigation.id,
+    stage: 'AUDIT_COMPLETE',
+    message: 'Auditor issued an inconclusive verdict with next actions',
+    progress: 100,
+    at: '2026-08-29T02:18:49.000Z',
+  },
+];
