@@ -177,9 +177,7 @@ class DaytonaResearchComputer:
                     time.sleep(1)
             if sandbox is None:
                 raise RuntimeError("Daytona returned no sandbox after creation")
-            install = (
-                "python -m pip install --quiet beautifulsoup4 lxml pymupdf httpx"
-            )
+            install = "python -m pip install --quiet beautifulsoup4 lxml pymupdf httpx"
             install_response = sandbox.process.exec(
                 install,
                 timeout=self.settings.daytona_command_timeout_seconds,
@@ -227,9 +225,7 @@ class DaytonaResearchComputer:
                 if "error" not in item and len(meaningful_text) >= 200:
                     documents.append(ScrapedDocument.model_validate(item))
                 elif "error" in item:
-                    retrieval_failures.append(
-                        f"{item.get('url', 'unknown URL')}: {item['error']}"
-                    )
+                    retrieval_failures.append(f"{item.get('url', 'unknown URL')}: {item['error']}")
                 else:
                     retrieval_failures.append(
                         f"{item.get('url', 'unknown URL')}: only "

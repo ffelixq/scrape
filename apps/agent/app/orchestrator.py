@@ -223,9 +223,7 @@ def _gated_claim_status(
 
 
 def _final_answer(verdict: str, question: str, claims: list[ClaimRecord]) -> str:
-    supported = [
-        claim.text for claim in claims if claim.status in {"SUPPORTED", "WELL_SUPPORTED"}
-    ]
+    supported = [claim.text for claim in claims if claim.status in {"SUPPORTED", "WELL_SUPPORTED"}]
     challenged = [
         claim.text for claim in claims if claim.status in {"CONTRADICTED", "LIKELY_FALSE"}
     ]
@@ -314,14 +312,17 @@ class ResearchOrchestrator:
                 AgentFindings,
             )
             runtime_limitations.append(
-                "The independent Nosana skeptic endpoint was unavailable during this run; "
-                "the adversarial review used Gemini as a disclosed continuity fallback."
+                "The independent Nosana skeptic endpoint was unavailable during this run; the "
+                f"adversarial review used the {self.settings.llm_provider} provider as a "
+                "disclosed continuity fallback, so it was not independent of the supporter."
             )
         else:
             skeptic = skeptic_result
 
         skeptic_label = (
-            "NOSANA" if not used_nosana_fallback else "GEMINI FALLBACK; NOSANA UNAVAILABLE"
+            "NOSANA"
+            if not used_nosana_fallback
+            else f"{self.settings.llm_provider.upper()} FALLBACK; NOSANA UNAVAILABLE"
         )
         audit_input = (
             f"{bundle}\n\nSUPPORTER REPORT:\n{supporter.model_dump_json()}"

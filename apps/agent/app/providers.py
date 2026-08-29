@@ -1,14 +1,54 @@
 import asyncio
 import json
+import logging
 import re
 from abc import ABC, abstractmethod
 from typing import TypeVar
 
+import httpx
 from pydantic import BaseModel
 
 from app.config import Settings
 
+logger = logging.getLogger(__name__)
+
 T = TypeVar("T", bound=BaseModel)
+
+MAX_INFERENCE_ATTEMPTS = 3
+INITIAL_RETRY_DELAY_SECONDS = 1.5
+
+# Provider SDKs surface overload and capacity failures with different classes, so the
+# transient check reads an HTTP status when one is exposed and falls back to class names.
+_TRANSIENT_STATUS_CODES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+_TRANSIENT_ERROR_NAMES = frozenset(
+    {
+        "APIConnectionError",
+        "APITimeoutError",
+        "InternalServerError",
+        "RateLimitError",
+        "ServerError",
+        "ServiceUnavailable",
+    }
+)
+
+
+def inference_status_code(error: BaseException) -> int | None:
+    """Read an HTTP status from a provider error, whichever attribute the SDK uses."""
+    for attribute in ("status_code", "code", "status"):
+        value = getattr(error, attribute, None)
+        if isinstance(value, int):
+            return value
+    return None
+
+
+def is_transient_inference_error(error: BaseException) -> bool:
+    """True when retrying the same request has a realistic chance of succeeding."""
+    if isinstance(error, TimeoutError | httpx.TransportError):
+        return True
+    status = inference_status_code(error)
+    if status is not None:
+        return status in _TRANSIENT_STATUS_CODES
+    return type(error).__name__ in _TRANSIENT_ERROR_NAMES
 
 
 CONTROL_PREAMBLE = """
@@ -33,8 +73,33 @@ def _extract_json(value: str) -> object:
 
 
 class StructuredLLM(ABC):
-    @abstractmethod
+    """Structured inference with bounded retries for transient provider failures.
+
+    A live investigation has already spent a sandbox and a full scrape by the time the
+    models are called, so a momentary provider overload must not discard that evidence.
+    """
+
     async def parse(self, system: str, user: str, schema: type[T]) -> T:
+        delay = INITIAL_RETRY_DELAY_SECONDS
+        for attempt in range(1, MAX_INFERENCE_ATTEMPTS + 1):
+            try:
+                return await self._parse_once(system, user, schema)
+            except Exception as error:
+                if attempt == MAX_INFERENCE_ATTEMPTS or not is_transient_inference_error(error):
+                    raise
+                logger.warning(
+                    "Transient inference failure (%s) on attempt %d/%d; retrying in %.1fs",
+                    type(error).__name__,
+                    attempt,
+                    MAX_INFERENCE_ATTEMPTS,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+                delay *= 2
+        raise RuntimeError("Inference retries were exhausted without a result")
+
+    @abstractmethod
+    async def _parse_once(self, system: str, user: str, schema: type[T]) -> T:
         raise NotImplementedError
 
 
@@ -42,10 +107,12 @@ class OpenAIResponsesLLM(StructuredLLM):
     def __init__(self, settings: Settings):
         from openai import OpenAI
 
-        self.client = OpenAI(api_key=settings.openai_api_key)
+        # StructuredLLM owns the single, observable retry policy; SDK-level retries would
+        # multiply against it and spend the caller's timeout budget on duplicate requests.
+        self.client = OpenAI(api_key=settings.openai_api_key, max_retries=0)
         self.model = settings.openai_model
 
-    async def parse(self, system: str, user: str, schema: type[T]) -> T:
+    async def _parse_once(self, system: str, user: str, schema: type[T]) -> T:
         def call() -> T:
             response = self.client.responses.parse(
                 model=self.model,
@@ -67,7 +134,7 @@ class GeminiLLM(StructuredLLM):
         self.client = genai.Client(api_key=settings.google_api_key)
         self.model = settings.gemini_model
 
-    async def parse(self, system: str, user: str, schema: type[T]) -> T:
+    async def _parse_once(self, system: str, user: str, schema: type[T]) -> T:
         from google.genai import types
 
         def call() -> T:
@@ -92,10 +159,14 @@ class OpenAICompatibleLLM(StructuredLLM):
     def __init__(self, *, api_key: str, base_url: str, model: str):
         from openai import OpenAI
 
-        self.client = OpenAI(api_key=api_key or "not-required", base_url=base_url.rstrip("/"))
+        self.client = OpenAI(
+            api_key=api_key or "not-required",
+            base_url=base_url.rstrip("/"),
+            max_retries=0,
+        )
         self.model = model
 
-    async def parse(self, system: str, user: str, schema: type[T]) -> T:
+    async def _parse_once(self, system: str, user: str, schema: type[T]) -> T:
         def call() -> T:
             response = self.client.chat.completions.create(
                 model=self.model,

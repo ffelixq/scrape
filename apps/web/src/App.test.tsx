@@ -16,7 +16,10 @@ beforeAll(() => {
     },
   );
   vi.stubGlobal('scrollTo', vi.fn());
-  vi.stubGlobal('fetch', vi.fn(() => new Promise(() => undefined)));
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(() => new Promise(() => undefined)),
+  );
 });
 
 describe('Proofline public experience', () => {

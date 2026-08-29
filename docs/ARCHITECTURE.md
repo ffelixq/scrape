@@ -41,3 +41,8 @@ The JSON projection makes report reads fast; normalized rows support analytics, 
 - LLM output is schema-constrained, then validated again at the API boundary.
 - Evidence strength is deterministic and inspectable. LLMs classify and explain; they do not assign a probability of truth.
 - A timeout or missing source produces `UNVERIFIABLE`, never a guessed answer.
+- Search providers are untrusted inputs. A result whose URL is unusable, and a query that fails
+  outright, are both discarded; discovery aborts only when every query fails.
+- Inference calls are retried a bounded number of times on transient provider failures, because a
+  momentary overload would otherwise discard a sandbox and a completed scrape. Retries live in one
+  place: provider SDK retries are disabled so the two policies cannot multiply.

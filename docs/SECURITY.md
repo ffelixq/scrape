@@ -11,6 +11,9 @@ Proofline assumes every website, redirect, PDF, archive, document, and extracted
 - Helmet security headers, explicit CORS, JSON-only 64 KB request bodies, rate limiting, Zod schemas, and opaque request IDs.
 - The research agent is protected by a constant-time bearer-token comparison and is not intended to be public.
 - Production traffic must use TLS and private networking between the API, agent, database, and Redis.
+- Live failures are reported from a closed vocabulary. Upstream failure text can carry sandbox or
+  page content, so it is logged and never returned to the caller; only the class of failure — an
+  exhausted provider quota, an unavailable dependency — crosses the boundary.
 
 ### Daytona sandbox
 

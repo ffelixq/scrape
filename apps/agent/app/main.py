@@ -8,8 +8,27 @@ from fastapi import Depends, FastAPI, Header, HTTPException, status
 from app.config import Settings, get_settings
 from app.models import InvestigationRequest, InvestigationResult, utc_now
 from app.orchestrator import ResearchOrchestrator
+from app.providers import inference_status_code, is_transient_inference_error
 
 logger = logging.getLogger(__name__)
+
+
+def classify_live_failure(error: BaseException) -> str:
+    """Describe a live failure using a closed vocabulary.
+
+    Upstream failure text can carry untrusted page or sandbox output, so it is logged
+    but never returned to the caller. Only the class of failure crosses the boundary,
+    which is enough to tell an exhausted quota apart from an unreachable dependency.
+    """
+    if inference_status_code(error) == 429:
+        return (
+            "The configured inference provider refused the request because its quota or "
+            "rate limit is exhausted."
+        )
+    if is_transient_inference_error(error):
+        return "A live research dependency stayed unavailable through its bounded retries."
+    return f"A live research dependency failed ({type(error).__name__})."
+
 
 app = FastAPI(
     title="Proofline Research Agent",
@@ -67,8 +86,5 @@ async def investigate(
             logger.exception("Live investigation failed")
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=(
-                    "A live research dependency failed. No conclusion was produced; "
-                    f"agent error: {type(error).__name__}."
-                ),
+                detail=f"No conclusion was produced. {classify_live_failure(error)}",
             ) from error
