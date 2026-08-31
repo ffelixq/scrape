@@ -44,12 +44,6 @@ def _next_midnight(timezone: str, now: datetime) -> datetime:
     return datetime.combine(tomorrow, datetime.min.time(), ZoneInfo(timezone)).astimezone(UTC)
 
 
-def _next_month(now: datetime) -> datetime:
-    year = now.year + (1 if now.month == 12 else 0)
-    month = 1 if now.month == 12 else now.month + 1
-    return datetime(year, month, 1, tzinfo=UTC)
-
-
 class UsageLedger:
     """Small durable ledger for provider usage and pre-flight token reservations.
 
@@ -524,8 +518,11 @@ async def provider_usage_dashboard(settings: Settings) -> dict[str, Any]:
             used=tavily_used,
             limit=tavily_limit,
             unit="credits",
-            reset_at=_next_month(now),
-            reset_label="Credits reset on the first day of each month.",
+            reset_at=None,
+            reset_label=(
+                "Credits reset on the first day of each month; Tavily does not publish the "
+                "reset timezone."
+            ),
             source="provider" if tavily_remote_used is not None else "local",
             note=(
                 f"{tavily_metadata.get('plan', 'Researcher')} plan. Advanced searches cost "
