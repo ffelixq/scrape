@@ -95,6 +95,8 @@ export class InvestigationRepository {
       question: record.question,
       context: record.context,
       mode: record.mode === 'DEEP' ? 'DEEP' : 'STANDARD',
+      llmProvider: 'gemini',
+      searchProvider: 'tavily',
     });
     skeleton.status = record.status;
     skeleton.createdAt = record.createdAt.toISOString();

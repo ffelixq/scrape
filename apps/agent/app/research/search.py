@@ -4,6 +4,7 @@ import re
 from collections.abc import Iterable
 from datetime import UTC, datetime
 from itertools import zip_longest
+from typing import Literal
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -11,8 +12,10 @@ from pydantic import ValidationError
 
 from app.config import Settings
 from app.models import SearchCandidate
+from app.usage import UsageLedger
 
 logger = logging.getLogger(__name__)
+SearchProvider = Literal["tavily", "serper"]
 
 
 def canonicalize_url(url: str) -> str:
@@ -50,8 +53,14 @@ def _candidate_or_none(
 
 
 class SearchClient:
-    def __init__(self, settings: Settings):
+    def __init__(
+        self,
+        settings: Settings,
+        preferred_provider: SearchProvider | None = None,
+    ):
         self.settings = settings
+        self.preferred_provider = preferred_provider or settings.search_provider
+        self.ledger = UsageLedger(settings)
         self.client = httpx.AsyncClient(timeout=25, follow_redirects=False)
 
     async def close(self) -> None:
@@ -94,7 +103,8 @@ class SearchClient:
             results.append(group)
         if not results:
             raise RuntimeError(
-                f"Every {self.settings.search_provider} query failed; no evidence could be sought"
+                "Every search query failed across the configured providers; "
+                "no evidence could be sought"
             ) from (failures[0] if failures else None)
         subject_tokens = {
             token
@@ -123,7 +133,55 @@ class SearchClient:
         return overlap >= required
 
     async def _search(self, query: str, role: str) -> list[SearchCandidate]:
-        if self.settings.search_provider == "tavily":
+        failures: list[Exception] = []
+        providers = self._configured_provider_order()
+        if not providers:
+            raise RuntimeError("No search provider credential is configured")
+
+        for index, provider in enumerate(providers):
+            fallback_message = "; trying fallback" if index + 1 < len(providers) else ""
+            try:
+                candidates = await self._search_provider(provider, query, role)
+                if candidates:
+                    return candidates
+                logger.warning("%s returned no usable results%s", provider, fallback_message)
+            except Exception as error:
+                status = getattr(getattr(error, "response", None), "status_code", None)
+                provider_status = "needs_attention" if status in {401, 403} else "unavailable"
+                self.ledger.set_state(
+                    provider,
+                    provider_status,
+                    f"Search failed ({type(error).__name__}).",
+                )
+                logger.warning(
+                    "%s search failed (%s)%s",
+                    provider,
+                    type(error).__name__,
+                    fallback_message,
+                )
+                failures.append(error)
+
+        raise RuntimeError("Every configured search provider failed for this query") from (
+            failures[0] if failures else None
+        )
+
+    def _configured_provider_order(self) -> list[SearchProvider]:
+        fallback: SearchProvider = "serper" if self.preferred_provider == "tavily" else "tavily"
+        credentials: dict[SearchProvider, str] = {
+            "tavily": self.settings.tavily_api_key,
+            "serper": self.settings.serper_api_key,
+        }
+        return [
+            provider for provider in (self.preferred_provider, fallback) if credentials[provider]
+        ]
+
+    async def _search_provider(
+        self,
+        provider: SearchProvider,
+        query: str,
+        role: str,
+    ) -> list[SearchCandidate]:
+        if provider == "tavily":
             response = await self.client.post(
                 "https://api.tavily.com/search",
                 json={
@@ -132,11 +190,17 @@ class SearchClient:
                     "search_depth": "advanced",
                     "max_results": 8,
                     "include_raw_content": False,
+                    "include_usage": True,
                 },
             )
             response.raise_for_status()
+            payload = response.json()
+            raw_credits = payload.get("usage", {}).get("credits", 2)
+            credits = int(raw_credits) if isinstance(raw_credits, int | float) else 2
+            self.ledger.record_search("tavily", credits)
+            self.ledger.set_state("tavily", "available", "Credential verified by search.")
             return self._to_candidates(
-                response.json().get("results", []),
+                payload.get("results", []),
                 url_key="url",
                 snippet_key="content",
                 published_key="published_date",
@@ -149,8 +213,11 @@ class SearchClient:
             json={"q": query, "num": 10},
         )
         response.raise_for_status()
+        payload = response.json()
+        self.ledger.record_search("serper", 1)
+        self.ledger.set_state("serper", "available", "Credential verified by search.")
         return self._to_candidates(
-            response.json().get("organic", []),
+            payload.get("organic", []),
             url_key="link",
             snippet_key="snippet",
             published_key="date",

@@ -9,6 +9,7 @@ from app.config import Settings, get_settings
 from app.models import InvestigationRequest, InvestigationResult, utc_now
 from app.orchestrator import ResearchOrchestrator
 from app.providers import inference_status_code, is_transient_inference_error
+from app.usage import provider_usage_dashboard
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,11 @@ async def health(settings: SettingsDependency) -> dict:
         "daytona": "configured" if settings.daytona_api_key else "awaiting_key",
         "at": utc_now(),
     }
+
+
+@app.get("/usage", dependencies=[Depends(require_internal_token)])
+async def usage(settings: SettingsDependency) -> dict:
+    return await provider_usage_dashboard(settings)
 
 
 @app.post(

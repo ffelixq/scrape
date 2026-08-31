@@ -3,12 +3,13 @@ import json
 import logging
 import re
 from abc import ABC, abstractmethod
-from typing import TypeVar
+from typing import Literal, TypeVar
 
 import httpx
 from pydantic import BaseModel
 
 from app.config import Settings
+from app.usage import LocalQuotaExceededError, UsageLedger, parse_reset_duration
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +44,8 @@ def inference_status_code(error: BaseException) -> int | None:
 
 def is_transient_inference_error(error: BaseException) -> bool:
     """True when retrying the same request has a realistic chance of succeeding."""
+    if isinstance(error, LocalQuotaExceededError):
+        return False
     if isinstance(error, TimeoutError | httpx.TransportError):
         return True
     status = inference_status_code(error)
@@ -103,36 +106,15 @@ class StructuredLLM(ABC):
         raise NotImplementedError
 
 
-class OpenAIResponsesLLM(StructuredLLM):
-    def __init__(self, settings: Settings):
-        from openai import OpenAI
-
-        # StructuredLLM owns the single, observable retry policy; SDK-level retries would
-        # multiply against it and spend the caller's timeout budget on duplicate requests.
-        self.client = OpenAI(api_key=settings.openai_api_key, max_retries=0)
-        self.model = settings.openai_model
-
-    async def _parse_once(self, system: str, user: str, schema: type[T]) -> T:
-        def call() -> T:
-            response = self.client.responses.parse(
-                model=self.model,
-                instructions=f"{CONTROL_PREAMBLE}\n\n{system}",
-                input=user,
-                text_format=schema,
-            )
-            if response.output_parsed is None:
-                raise RuntimeError("OpenAI returned no structured output")
-            return response.output_parsed
-
-        return await asyncio.to_thread(call)
-
-
 class GeminiLLM(StructuredLLM):
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, ledger: UsageLedger):
         from google import genai
 
         self.client = genai.Client(api_key=settings.google_api_key)
         self.model = settings.gemini_model
+        self.temperature = settings.llm_temperature
+        self.max_output_tokens = settings.llm_max_output_tokens
+        self.ledger = ledger
 
     async def _parse_once(self, system: str, user: str, schema: type[T]) -> T:
         from google.genai import types
@@ -145,9 +127,21 @@ class GeminiLLM(StructuredLLM):
                     system_instruction=f"{CONTROL_PREAMBLE}\n\n{system}",
                     response_mime_type="application/json",
                     response_schema=schema,
-                    temperature=0.1,
+                    temperature=self.temperature,
+                    max_output_tokens=self.max_output_tokens,
                 ),
             )
+            usage = response.usage_metadata
+            input_tokens = int(getattr(usage, "prompt_token_count", 0) or 0)
+            output_tokens = int(getattr(usage, "candidates_token_count", 0) or 0)
+            total_tokens = int(getattr(usage, "total_token_count", 0) or 0)
+            self.ledger.record_llm(
+                "gemini",
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens or input_tokens + output_tokens,
+            )
+            self.ledger.set_state("gemini", "available", "Credential verified by inference.")
             if not response.text:
                 raise RuntimeError("Gemini returned no structured output")
             return schema.model_validate(_extract_json(response.text))
@@ -156,7 +150,18 @@ class GeminiLLM(StructuredLLM):
 
 
 class OpenAICompatibleLLM(StructuredLLM):
-    def __init__(self, *, api_key: str, base_url: str, model: str):
+    def __init__(
+        self,
+        *,
+        api_key: str,
+        base_url: str,
+        model: str,
+        provider: Literal["groq", "deepseek"],
+        ledger: UsageLedger,
+        temperature: float,
+        max_output_tokens: int,
+        supports_json_schema: bool = False,
+    ):
         from openai import OpenAI
 
         self.client = OpenAI(
@@ -165,24 +170,98 @@ class OpenAICompatibleLLM(StructuredLLM):
             max_retries=0,
         )
         self.model = model
+        self.provider = provider
+        self.ledger = ledger
+        self.temperature = temperature
+        self.max_output_tokens = max_output_tokens
+        self.supports_json_schema = supports_json_schema
 
     async def _parse_once(self, system: str, user: str, schema: type[T]) -> T:
         def call() -> T:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                temperature=0.1,
-                response_format={"type": "json_object"},
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            f"{CONTROL_PREAMBLE}\n\n{system}\n\n"
-                            "Return JSON matching this schema: "
-                            f"{json.dumps(schema.model_json_schema())}"
-                        ),
+            schema_json = json.dumps(schema.model_json_schema())
+            system_content = (
+                f"{CONTROL_PREAMBLE}\n\n{system}\n\nReturn JSON matching this schema: {schema_json}"
+            )
+            reservation = (
+                self.ledger.reserve_deepseek(f"{system_content}\n\n{user}", self.max_output_tokens)
+                if self.provider == "deepseek"
+                else None
+            )
+            response_format = (
+                {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": schema.__name__,
+                        "strict": False,
+                        "schema": schema.model_json_schema(),
                     },
-                    {"role": "user", "content": user},
-                ],
+                }
+                if self.supports_json_schema
+                else {"type": "json_object"}
+            )
+            try:
+                raw_response = self.client.chat.completions.with_raw_response.create(
+                    model=self.model,
+                    temperature=self.temperature,
+                    max_tokens=self.max_output_tokens,
+                    response_format=response_format,
+                    messages=[
+                        {"role": "system", "content": system_content},
+                        {"role": "user", "content": user},
+                    ],
+                )
+                response = raw_response.parse()
+            except Exception as error:
+                self.ledger.release(reservation)
+                status = inference_status_code(error)
+                provider_status = "needs_attention" if status in {401, 403} else "unavailable"
+                self.ledger.set_state(
+                    self.provider,
+                    provider_status,
+                    f"Inference failed ({type(error).__name__}).",
+                )
+                raise
+            usage = response.usage
+            if usage:
+                input_tokens = int(usage.prompt_tokens or 0)
+                output_tokens = int(usage.completion_tokens or 0)
+                total_tokens = int(usage.total_tokens or input_tokens + output_tokens)
+            elif reservation:
+                input_tokens = max(0, reservation.tokens - self.max_output_tokens)
+                output_tokens = self.max_output_tokens
+                total_tokens = reservation.tokens
+            else:
+                input_tokens = len(f"{system_content}\n\n{user}".encode())
+                output_tokens = 0
+                total_tokens = input_tokens
+            self.ledger.record_llm(
+                self.provider,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                total_tokens=total_tokens,
+                reservation=reservation,
+            )
+            metadata: dict[str, str | int] = {}
+            if self.provider == "groq":
+                for header, key in (
+                    ("x-ratelimit-limit-requests", "request_limit"),
+                    ("x-ratelimit-remaining-requests", "requests_remaining"),
+                    ("x-ratelimit-limit-tokens", "minute_token_limit"),
+                    ("x-ratelimit-remaining-tokens", "minute_tokens_remaining"),
+                ):
+                    value = raw_response.headers.get(header)
+                    if value and value.isdigit():
+                        metadata[key] = int(value)
+                reset_at = parse_reset_duration(
+                    raw_response.headers.get("x-ratelimit-reset-requests")
+                )
+                if reset_at:
+                    metadata["requests_reset_at"] = reset_at.isoformat().replace("+00:00", "Z")
+            self.ledger.set_state(
+                self.provider,
+                "available",
+                "Credential verified by inference.",
+                metadata,
             )
             content = response.choices[0].message.content
             if not content:
@@ -192,15 +271,75 @@ class OpenAICompatibleLLM(StructuredLLM):
         return await asyncio.to_thread(call)
 
 
-def get_llm(settings: Settings) -> StructuredLLM:
-    if settings.llm_provider == "openai":
-        return OpenAIResponsesLLM(settings)
-    if settings.llm_provider == "gemini":
-        return GeminiLLM(settings)
-    if settings.llm_provider == "kimi":
-        return OpenAICompatibleLLM(
-            api_key=settings.kimi_api_key,
-            base_url=settings.kimi_base_url,
-            model=settings.kimi_model,
+class FailoverLLM:
+    """Run structured inference through the configured providers in priority order."""
+
+    def __init__(self, routes: list[tuple[str, StructuredLLM]]):
+        if not routes:
+            raise RuntimeError("No inference provider credential is configured")
+        self.routes = routes
+        self.last_provider: str | None = None
+
+    @property
+    def provider_names(self) -> list[str]:
+        return [name for name, _provider in self.routes]
+
+    async def parse(self, system: str, user: str, schema: type[T]) -> T:
+        failures: list[Exception] = []
+        for index, (name, provider) in enumerate(self.routes):
+            fallback_message = "; trying fallback" if index + 1 < len(self.routes) else ""
+            try:
+                result = await provider.parse(system, user, schema)
+            except Exception as error:
+                logger.warning(
+                    "%s inference failed (%s)%s",
+                    name,
+                    type(error).__name__,
+                    fallback_message,
+                )
+                failures.append(error)
+                continue
+            self.last_provider = name
+            return result
+        raise failures[-1]
+
+
+def get_llm(
+    settings: Settings,
+    preferred_provider: Literal["gemini", "groq", "deepseek"] = "gemini",
+) -> FailoverLLM:
+    ledger = UsageLedger(settings)
+    configured: dict[str, StructuredLLM] = {}
+    if settings.google_api_key:
+        configured["gemini"] = GeminiLLM(settings, ledger)
+    if settings.groq_api_key:
+        configured["groq"] = OpenAICompatibleLLM(
+            api_key=settings.groq_api_key,
+            base_url="https://api.groq.com/openai/v1",
+            model=settings.groq_model,
+            provider="groq",
+            ledger=ledger,
+            temperature=settings.llm_temperature,
+            max_output_tokens=settings.llm_max_output_tokens,
+            supports_json_schema=True,
         )
-    raise RuntimeError(f"Unsupported LLM provider: {settings.llm_provider}")
+    if settings.deepseek_api_key:
+        configured["deepseek"] = OpenAICompatibleLLM(
+            api_key=settings.deepseek_api_key,
+            base_url="https://api.deepseek.com",
+            model=settings.deepseek_model,
+            provider="deepseek",
+            ledger=ledger,
+            temperature=settings.llm_temperature,
+            max_output_tokens=settings.llm_max_output_tokens,
+        )
+    order = [
+        preferred_provider,
+        *(
+            provider
+            for provider in ("gemini", "groq", "deepseek")
+            if provider != preferred_provider
+        ),
+    ]
+    routes = [(provider, configured[provider]) for provider in order if provider in configured]
+    return FailoverLLM(routes)

@@ -1,5 +1,4 @@
 import pytest
-from pydantic import ValidationError
 
 from app import orchestrator
 from app.config import Settings
@@ -13,9 +12,11 @@ from app.models import (
 
 
 class _RecordingLLM:
-    def __init__(self, responses):
+    def __init__(self, responses, provider_name: str = "gemini"):
         self.responses = list(responses)
         self.calls: list[tuple[str, str]] = []
+        self.provider_name = provider_name
+        self.last_provider: str | None = None
 
     async def parse(self, system, user, schema):
         self.calls.append((system, user))
@@ -23,13 +24,13 @@ class _RecordingLLM:
         if isinstance(response, BaseException):
             raise response
         assert isinstance(response, schema)
+        self.last_provider = self.provider_name
         return response
 
 
 def _settings() -> Settings:
     return Settings(
         demo_mode=False,
-        llm_provider="gemini",
         google_api_key="test-google-key",
         daytona_api_key="test-daytona-key",
         tavily_api_key="test-tavily-key",
@@ -42,8 +43,9 @@ def _agent_findings(summary: str) -> AgentFindings:
 
 def _install_live_dependencies(monkeypatch, llms: list[_RecordingLLM]) -> None:
     class _SearchClient:
-        def __init__(self, settings):
+        def __init__(self, settings, preferred_provider):
             self.settings = settings
+            self.preferred_provider = preferred_provider
 
         async def discover(self, question):
             return [
@@ -75,7 +77,8 @@ def _install_live_dependencies(monkeypatch, llms: list[_RecordingLLM]) -> None:
 
     remaining_llms = list(llms)
 
-    def _get_llm(settings):
+    def _get_llm(settings, preferred_provider):
+        assert preferred_provider in {"gemini", "groq", "deepseek"}
         return remaining_llms.pop(0)
 
     monkeypatch.setattr(orchestrator, "SearchClient", _SearchClient)
@@ -83,16 +86,43 @@ def _install_live_dependencies(monkeypatch, llms: list[_RecordingLLM]) -> None:
     monkeypatch.setattr(orchestrator, "get_llm", _get_llm)
 
 
-def test_live_credentials_need_only_the_selected_llm() -> None:
+def test_live_credentials_accept_gemini_as_the_only_llm() -> None:
     _settings().require_live_credentials()
 
 
-def test_removed_provider_is_rejected() -> None:
-    with pytest.raises(ValidationError):
-        Settings(llm_provider="nosana")
+def test_live_credentials_accept_serper_as_the_only_search_provider() -> None:
+    settings = _settings().model_copy(
+        update={"tavily_api_key": "", "serper_api_key": "test-serper-key"}
+    )
+
+    settings.require_live_credentials()
 
 
-async def test_selected_provider_runs_all_three_analysis_roles(monkeypatch) -> None:
+def test_live_credentials_require_at_least_one_search_provider() -> None:
+    settings = _settings().model_copy(update={"tavily_api_key": "", "serper_api_key": ""})
+
+    with pytest.raises(RuntimeError, match="TAVILY_API_KEY or SERPER_API_KEY"):
+        settings.require_live_credentials()
+
+
+def test_live_credentials_accept_deepseek_as_the_only_llm() -> None:
+    settings = _settings().model_copy(
+        update={"google_api_key": "", "deepseek_api_key": "test-deepseek-key"}
+    )
+
+    settings.require_live_credentials()
+
+
+def test_live_credentials_require_at_least_one_llm_provider() -> None:
+    settings = _settings().model_copy(
+        update={"google_api_key": "", "groq_api_key": "", "deepseek_api_key": ""}
+    )
+
+    with pytest.raises(RuntimeError, match="GOOGLE_API_KEY, GROQ_API_KEY, or DEEPSEEK_API_KEY"):
+        settings.require_live_credentials()
+
+
+async def test_failover_chain_runs_all_three_analysis_roles(monkeypatch) -> None:
     supporter = _agent_findings("Supporting analysis completed.")
     skeptic = _agent_findings("Skeptical analysis completed.")
     audit = AuditDecision(

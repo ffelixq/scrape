@@ -1,8 +1,10 @@
 import {
   createInvestigationSchema,
   investigationSchema,
+  providerUsageDashboardSchema,
   type CreateInvestigationInput,
   type Investigation,
+  type ProviderUsageDashboard,
 } from '@proofline/contracts';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api';
@@ -46,6 +48,11 @@ export async function createInvestigation(input: CreateInvestigationInput): Prom
 export async function getInvestigation(id: string): Promise<Investigation> {
   const data = await request<unknown>(`/investigations/${encodeURIComponent(id)}`);
   return investigationSchema.parse(data);
+}
+
+export async function getProviderUsage(): Promise<ProviderUsageDashboard> {
+  const data = await request<unknown>('/usage');
+  return providerUsageDashboardSchema.parse(data);
 }
 
 export function subscribeToInvestigation(

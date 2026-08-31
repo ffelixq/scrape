@@ -8,7 +8,7 @@
 4. Candidate URLs pass an SSRF check before a Daytona sandbox is created.
 5. Playwright, BeautifulSoup, and PyMuPDF run inside that ephemeral sandbox. The sandbox receives no private credentials.
 6. Extracted documents are hashed, canonicalized, clustered by origin, and scored as source records.
-7. Separate calls to the selected LLM build the supporting and opposing cases in parallel.
+7. Separate calls through the user-selected LLM first, followed by configured fallbacks, build the supporting and opposing cases in parallel.
 8. The auditor reconciles both reports against the actual evidence bundle and may refuse a conclusion.
 9. A deterministic layer calculates evidence strength, counts independent origins, and builds evidence edges.
 10. PostgreSQL stores the normalized report and Redis caches the current projection. SSE pushes state changes to the browser.
@@ -41,8 +41,14 @@ The JSON projection makes report reads fast; normalized rows support analytics, 
 - LLM output is schema-constrained, then validated again at the API boundary.
 - Evidence strength is deterministic and inspectable. LLMs classify and explain; they do not assign a probability of truth.
 - A timeout or missing source produces `UNVERIFIABLE`, never a guessed answer.
-- Search providers are untrusted inputs. A result whose URL is unusable, and a query that fails
-  outright, are both discarded; discovery aborts only when every query fails.
-- Inference calls are retried a bounded number of times on transient provider failures, because a
+- Search providers are untrusted inputs. Each query tries the selected provider and then the other
+  configured provider on errors or empty results. Unusable rows are discarded; discovery aborts
+  only when every query fails across the available providers.
+- Inference calls try the user-selected provider first, then the other configured providers. Calls
+  are retried a bounded number of times on transient provider failures, because a
   momentary overload would otherwise discard a sandbox and a completed scrape. Retries live in one
-  place: provider SDK retries are disabled so the two policies cannot multiply.
+  place: provider SDK retries are disabled so the two policies cannot multiply. Exhausted or
+  invalid responses advance to the next configured route.
+- Provider usage is recorded in a transactional SQLite ledger shared by the agent workers. DeepSeek
+  calls reserve a conservative input-plus-output allowance before transmission and settle to actual
+  provider-reported tokens afterward. A named Docker volume preserves the ledger across restarts.

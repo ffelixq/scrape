@@ -21,6 +21,10 @@ export const sourceTierSchema = z.enum(['PRIMARY', 'AUTHORITATIVE', 'SECONDARY',
 
 export const evidenceRelationSchema = z.enum(['SUPPORTS', 'OPPOSES', 'CONTEXT']);
 
+export const llmProviderSchema = z.enum(['gemini', 'groq', 'deepseek']);
+
+export const searchProviderSchema = z.enum(['tavily', 'serper']);
+
 export const createInvestigationSchema = z.object({
   question: z
     .string()
@@ -29,6 +33,31 @@ export const createInvestigationSchema = z.object({
     .max(2_000),
   context: z.string().trim().max(4_000).optional().default(''),
   mode: z.enum(['STANDARD', 'DEEP']).optional().default('STANDARD'),
+  llmProvider: llmProviderSchema.optional().default('gemini'),
+  searchProvider: searchProviderSchema.optional().default('tavily'),
+});
+
+export const providerUsageSchema = z.object({
+  provider: z.enum(['gemini', 'groq', 'deepseek', 'tavily', 'serper']),
+  label: z.string(),
+  kind: z.enum(['llm', 'search']),
+  model: z.string().nullable(),
+  configured: z.boolean(),
+  status: z.enum(['available', 'configured', 'needs_attention', 'unavailable', 'not_configured']),
+  used: z.number().int().nonnegative(),
+  limit: z.number().int().positive().nullable(),
+  remaining: z.number().int().nonnegative().nullable(),
+  unit: z.enum(['requests', 'tokens', 'credits']),
+  resetAt: z.string().nullable(),
+  resetLabel: z.string(),
+  source: z.enum(['provider', 'local', 'local_hard_limit']),
+  note: z.string(),
+});
+
+export const providerUsageDashboardSchema = z.object({
+  updatedAt: z.string(),
+  timezone: z.string(),
+  providers: z.array(providerUsageSchema),
 });
 
 export const sourceSchema = z.object({
@@ -146,3 +175,7 @@ export type SecurityEvent = z.infer<typeof securityEventSchema>;
 export type Investigation = z.infer<typeof investigationSchema>;
 export type InvestigationEvent = z.infer<typeof investigationEventSchema>;
 export type CreateInvestigationInput = z.infer<typeof createInvestigationSchema>;
+export type LlmProvider = z.infer<typeof llmProviderSchema>;
+export type SearchProvider = z.infer<typeof searchProviderSchema>;
+export type ProviderUsage = z.infer<typeof providerUsageSchema>;
+export type ProviderUsageDashboard = z.infer<typeof providerUsageDashboardSchema>;

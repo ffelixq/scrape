@@ -34,4 +34,4 @@ Use short, imperative, scoped messages such as `feat: add source audit`, `fix: h
 
 ## Security & Configuration
 
-Copy `.env.example` to `.env` and keep credentials out of Git. Treat scraped pages and downloaded files as untrusted; route research through Daytona isolation and preserve prompt-injection warnings. Configure `DEMO_MODE=false` for live integrations, and verify PostgreSQL/Redis and the selected LLM credentials before running end-to-end investigations.
+Copy `.env.example` to `.env` and keep credentials out of Git. Treat scraped pages and downloaded files as untrusted; route research through Daytona isolation and preserve prompt-injection warnings. Configure `DEMO_MODE=false` for live integrations, and verify PostgreSQL/Redis and the configured LLM credentials before running end-to-end investigations.

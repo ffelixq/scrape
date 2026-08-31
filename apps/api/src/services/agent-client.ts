@@ -1,7 +1,9 @@
 import {
   investigationSchema,
+  providerUsageDashboardSchema,
   type CreateInvestigationInput,
   type Investigation,
+  type ProviderUsageDashboard,
 } from '@proofline/contracts';
 import { appConfig } from '../config.js';
 
@@ -23,6 +25,8 @@ export async function runAgentInvestigation(
         question: input.question,
         context: input.context,
         mode: input.mode,
+        llm_provider: input.llmProvider,
+        search_provider: input.searchProvider,
       }),
       signal: controller.signal,
     });
@@ -41,4 +45,15 @@ export async function runAgentInvestigation(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function getAgentProviderUsage(): Promise<ProviderUsageDashboard> {
+  const response = await fetch(`${appConfig.agentServiceUrl}/usage`, {
+    headers: { Authorization: `Bearer ${appConfig.internalAgentToken}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    throw new Error(`Agent usage service returned ${response.status}`);
+  }
+  return providerUsageDashboardSchema.parse(await response.json());
 }

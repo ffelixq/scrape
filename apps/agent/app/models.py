@@ -18,6 +18,8 @@ class InvestigationRequest(BaseModel):
     question: str = Field(min_length=12, max_length=2_000)
     context: str = Field(default="", max_length=4_000)
     mode: Literal["STANDARD", "DEEP"] = "STANDARD"
+    llm_provider: Literal["gemini", "groq", "deepseek"] = "gemini"
+    search_provider: Literal["tavily", "serper"] = "tavily"
 
 
 class SearchCandidate(BaseModel):

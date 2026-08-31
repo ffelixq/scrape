@@ -1,9 +1,19 @@
-import type { Investigation, InvestigationStatus } from '@proofline/contracts';
+import type {
+  Investigation,
+  InvestigationStatus,
+  ProviderUsageDashboard,
+} from '@proofline/contracts';
 import { AnimatePresence, motion } from 'framer-motion';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Landing } from './components/Landing';
 import { ResearchProgress } from './components/ResearchProgress';
-import { createInvestigation, getInvestigation, subscribeToInvestigation } from './lib/api';
+import type { InvestigationFormInput } from './components/InvestigationForm';
+import {
+  createInvestigation,
+  getInvestigation,
+  getProviderUsage,
+  subscribeToInvestigation,
+} from './lib/api';
 
 type View = 'landing' | 'researching' | 'report';
 
@@ -16,6 +26,8 @@ export function App() {
   const [question, setQuestion] = useState('');
   const [researchStatus, setResearchStatus] = useState<InvestigationStatus>('QUEUED');
   const [investigation, setInvestigation] = useState<Investigation | null>(null);
+  const [providerUsage, setProviderUsage] = useState<ProviderUsageDashboard | null>(null);
+  const [providerUsageError, setProviderUsageError] = useState<string | null>(null);
   const unsubscribe = useRef<(() => void) | null>(null);
 
   useEffect(() => {
@@ -49,7 +61,29 @@ export function App() {
     return () => unsubscribe.current?.();
   }, []);
 
-  const startInvestigation = useCallback((nextQuestion: string) => {
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      void getProviderUsage()
+        .then((result) => {
+          if (!active) return;
+          setProviderUsage(result);
+          setProviderUsageError(null);
+        })
+        .catch(() => {
+          if (active) setProviderUsageError('Provider usage is unavailable.');
+        });
+    };
+    refresh();
+    const interval = window.setInterval(refresh, 60_000);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  const startInvestigation = useCallback((input: InvestigationFormInput) => {
+    const nextQuestion = input.question;
     setQuestion(nextQuestion);
     setResearchStatus('QUEUED');
     setInvestigation(null);
@@ -57,7 +91,7 @@ export function App() {
     setView('researching');
     window.scrollTo({ top: 0, behavior: 'instant' });
 
-    void createInvestigation({ question: nextQuestion, mode: 'DEEP', context: '' })
+    void createInvestigation({ ...input, mode: 'DEEP', context: '' })
       .then((result) => {
         window.history.replaceState(
           {},
@@ -134,7 +168,13 @@ export function App() {
         exit={{ opacity: 0 }}
         transition={{ duration: 0.28 }}
       >
-        {view === 'landing' && <Landing onInvestigate={startInvestigation} />}
+        {view === 'landing' && (
+          <Landing
+            onInvestigate={startInvestigation}
+            providerUsage={providerUsage}
+            providerUsageError={providerUsageError}
+          />
+        )}
         {view === 'researching' && <ResearchProgress question={question} status={researchStatus} />}
         {view === 'report' && investigation && (
           <Suspense fallback={<div className="workspace-loading">Preparing evidence report…</div>}>

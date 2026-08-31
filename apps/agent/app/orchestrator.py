@@ -255,7 +255,7 @@ class ResearchOrchestrator:
             return self._demo_result(request)
 
         self.settings.require_live_credentials()
-        search = SearchClient(self.settings)
+        search = SearchClient(self.settings, request.search_provider)
         try:
             candidates = await search.discover(request.question)
         finally:
@@ -273,8 +273,8 @@ class ResearchOrchestrator:
 
         provenance = build_provenance(documents, request.investigation_id)
         bundle = _evidence_bundle(request.question, documents)
-        primary_llm = get_llm(self.settings)
-        skeptic_llm = get_llm(self.settings)
+        primary_llm = get_llm(self.settings, request.llm_provider)
+        skeptic_llm = get_llm(self.settings, request.llm_provider)
         supporter_result, skeptic_result = await asyncio.gather(
             primary_llm.parse(SUPPORT_PROMPT, bundle, AgentFindings),
             skeptic_llm.parse(SKEPTIC_PROMPT, bundle, AgentFindings),
@@ -286,9 +286,11 @@ class ResearchOrchestrator:
             raise skeptic_result
         supporter = supporter_result
         skeptic = skeptic_result
+        skeptic_provider = getattr(skeptic_llm, "last_provider", None)
+        skeptic_label = skeptic_provider.upper() if skeptic_provider else "LLM PROVIDER"
         audit_input = (
             f"{bundle}\n\nSUPPORTER REPORT:\n{supporter.model_dump_json()}"
-            f"\n\nSKEPTIC REPORT ({self.settings.llm_provider.upper()}):\n"
+            f"\n\nSKEPTIC REPORT ({skeptic_label}):\n"
             f"{skeptic.model_dump_json()}"
         )
         audit = await primary_llm.parse(AUDITOR_PROMPT, audit_input, AuditDecision)

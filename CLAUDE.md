@@ -87,10 +87,10 @@ treat it as high-risk per CONTRIBUTING.md and add regression coverage in `tests/
 
 ### Adversarial roles
 
-The supporter and skeptic run as separate concurrent calls through `LLM_PROVIDER`; the auditor runs
-after both complete. All three roles use the selected provider and credentials, so do not describe
-the skeptic as independently hosted model compute. Source independence is established separately by
-the deterministic provenance layer.
+The supporter and skeptic run as separate concurrent calls through the user-selected provider first,
+then the remaining configured fallbacks; the auditor runs after both complete. All three roles use
+the same per-investigation order, so do not describe the skeptic as independently hosted model
+compute. Source independence is established separately by the deterministic provenance layer.
 
 ### Trust boundaries
 

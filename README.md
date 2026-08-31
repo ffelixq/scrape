@@ -16,8 +16,9 @@ The repository is fully runnable without credentials. Demo mode presents a compl
 - Redis caching and BullMQ research jobs with local fallback
 - Python/FastAPI supporter → skeptic → auditor pipeline
 - Daytona ephemeral sandbox adapter for Playwright, PDFs, downloads, and extraction
-- Provider-neutral adversarial review using the selected LLM
-- OpenAI Responses, Gemini, and Kimi provider adapters
+- Per-investigation model and search selection with automatic provider failover
+- Durable provider usage dashboard and a hard DeepSeek daily token budget
+- Gemini, Groq, and DeepSeek provider adapters
 - Prompt-injection detection, SSRF blocking, content limits, and typed trust boundaries
 - Dockerfiles, local infrastructure, tests, CI, release containers, and contribution standards
 
@@ -35,9 +36,9 @@ Express API ── Redis / BullMQ
                  │    ├─ Playwright
                  │    ├─ BeautifulSoup
                  │    └─ PyMuPDF
-                 ├─ Support agent (selected LLM)
-                 ├─ Skeptic agent (selected LLM)
-                 └─ Evidence auditor (selected LLM)
+                 ├─ Support agent (LLM failover chain)
+                 ├─ Skeptic agent (LLM failover chain)
+                 └─ Evidence auditor (LLM failover chain)
 ```
 
 The application does not claim mathematical truth. Its score measures evidence strength: source quality, independence, breadth, directness, and recency. It is not a probability that a claim is true.
@@ -65,20 +66,39 @@ Open `http://localhost:5173`. With `DEMO_MODE=true`, no external account or API 
 ## Turn on live investigations
 
 1. Put your credentials into the root `.env`. Every supported variable is documented in `.env.example`.
-2. Add `DAYTONA_API_KEY`, a search key (`TAVILY_API_KEY` or `SERPER_API_KEY`), and the key for your selected LLM provider.
-3. Set `LLM_PROVIDER`, set `DEMO_MODE=false`, and restart the services.
+2. Add `DAYTONA_API_KEY`, at least one search key, and at least one LLM key. Tavily is the default search provider; configure both `TAVILY_API_KEY` and `SERPER_API_KEY` to fall back automatically when either provider errors, exhausts its quota, or returns no usable results.
+3. Set `DEMO_MODE=false` and restart the services.
 
-The supporter, skeptic, and auditor all use the selected LLM provider. The supporter and skeptic are separate adversarial passes, but they are not independent model compute. Daytona remains mandatory: live web content and files are retrieved and processed only inside an ephemeral sandbox.
+The supporter, skeptic, and auditor each use the configured LLM failover chain. The supporter and skeptic are separate adversarial passes, but they are not independent model compute. Daytona remains mandatory: live web content and files are retrieved and processed only inside an ephemeral sandbox.
 
-### LLM selection
+### Provider selection and failover
 
-Set `LLM_PROVIDER` to one of:
+The website defaults to Gemini and Tavily. Each investigation can select a different primary LLM
+and search provider. The selected provider runs first; configured alternatives remain available as
+fallbacks, so choosing DeepSeek produces `DeepSeek → Gemini → Groq`, for example.
 
-| Value    | Required configuration           | Role                            |
-| -------- | -------------------------------- | ------------------------------- |
-| `openai` | `OPENAI_API_KEY`, `OPENAI_MODEL` | Supporter, skeptic, and auditor |
-| `gemini` | `GOOGLE_API_KEY`, `GEMINI_MODEL` | Supporter, skeptic, and auditor |
-| `kimi`   | `KIMI_API_KEY`, `KIMI_MODEL`     | Supporter, skeptic, and auditor |
+| Provider | Configuration                        | Default model         |
+| -------- | ------------------------------------ | --------------------- |
+| Gemini   | `GOOGLE_API_KEY`, `GEMINI_MODEL`     | `gemini-3.7-flash`    |
+| Groq     | `GROQ_API_KEY`, `GROQ_MODEL`         | `openai/gpt-oss-120b` |
+| DeepSeek | `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL` | `deepseek-v4-flash`   |
+
+Providers without a key are skipped. A provider error, rate-limit exhaustion, or invalid structured response advances the current inference call to the next configured provider.
+
+### Usage and budget controls
+
+- Provider usage is stored in `USAGE_DB_PATH` and survives Docker restarts through the
+  `proofline_usage` volume.
+- DeepSeek uses a transactional pre-flight reservation. New calls are blocked before they can cross
+  `DEEPSEEK_DAILY_TOKEN_LIMIT` (500,000 by default), resetting at midnight in `USAGE_TIMEZONE`
+  (`Asia/Singapore` by default).
+- LLM responses are counted using provider-reported input/output/total token metadata. Search calls
+  record credits only after a successful provider response.
+- Tavily's bar uses its account `/usage` response. Gemini, Groq, and Serper expose different levels
+  of account quota data, so the UI explicitly labels app-local counters instead of presenting them
+  as whole-account balances.
+- API keys stay server-side. The browser receives provider names, status, counters, and reset times—
+  never credentials or upstream error bodies.
 
 ## Evidence outcomes
 

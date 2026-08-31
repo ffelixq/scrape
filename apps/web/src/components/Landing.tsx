@@ -15,13 +15,18 @@ import { motion } from 'framer-motion';
 import { lazy, Suspense, useLayoutEffect, useRef } from 'react';
 import { Brand } from './Brand';
 import { InvestigationForm } from './InvestigationForm';
+import type { InvestigationFormInput } from './InvestigationForm';
+import { ProviderUsagePanel } from './ProviderUsagePanel';
+import type { ProviderUsageDashboard } from '@proofline/contracts';
 
 const TruthScene = lazy(() =>
   import('./TruthScene').then((module) => ({ default: module.TruthScene })),
 );
 
 interface LandingProps {
-  onInvestigate: (question: string) => void;
+  onInvestigate: (input: InvestigationFormInput) => void;
+  providerUsage: ProviderUsageDashboard | null;
+  providerUsageError: string | null;
 }
 
 const principles = [
@@ -54,7 +59,7 @@ const useCases = [
   'High-stakes procurement',
 ];
 
-export function Landing({ onInvestigate }: LandingProps) {
+export function Landing({ onInvestigate, providerUsage, providerUsageError }: LandingProps) {
   const hero = useRef<HTMLElement>(null);
 
   function focusInvestigationForm() {
@@ -117,7 +122,8 @@ export function Landing({ onInvestigate }: LandingProps) {
             own conclusions, and tells you when the facts cannot be verified.
           </p>
           <div data-reveal>
-            <InvestigationForm onSubmit={onInvestigate} />
+            <InvestigationForm onSubmit={onInvestigate} usage={providerUsage} />
+            <ProviderUsagePanel usage={providerUsage} error={providerUsageError} />
           </div>
           <div className="hero-proof-row" data-reveal>
             <span>
@@ -290,7 +296,16 @@ export function Landing({ onInvestigate }: LandingProps) {
         </div>
         <div className="use-case-list">
           {useCases.map((item, index) => (
-            <button key={item} onClick={() => onInvestigate(`Investigate this: ${item}`)}>
+            <button
+              key={item}
+              onClick={() =>
+                onInvestigate({
+                  question: `Investigate this: ${item}`,
+                  llmProvider: 'gemini',
+                  searchProvider: 'tavily',
+                })
+              }
+            >
               <span>{String(index + 1).padStart(2, '0')}</span>
               <strong>{item}</strong>
               <ArrowDown size={15} className="diagonal-arrow" />

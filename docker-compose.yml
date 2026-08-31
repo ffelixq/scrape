@@ -40,6 +40,8 @@ services:
     env_file: .env
     ports:
       - '8001:8001'
+    volumes:
+      - proofline_usage:/app/.data
     healthcheck:
       test:
         [
@@ -84,3 +86,4 @@ services:
 volumes:
   proofline_postgres:
   proofline_redis:
+  proofline_usage:

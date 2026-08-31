@@ -2,8 +2,9 @@ import httpx
 import pytest
 
 from app import providers
+from app.config import Settings
 from app.models import AgentFindings
-from app.providers import StructuredLLM, is_transient_inference_error
+from app.providers import FailoverLLM, StructuredLLM, is_transient_inference_error
 
 
 class _ProviderError(Exception):
@@ -58,6 +59,88 @@ async def test_retries_are_bounded() -> None:
         await llm.parse("system", "user", AgentFindings)
 
     assert llm.attempts == providers.MAX_INFERENCE_ATTEMPTS
+
+
+async def test_inference_falls_back_from_gemini_to_groq() -> None:
+    gemini = _ScriptedLLM([_ProviderError(400)])
+    groq = _ScriptedLLM([])
+    deepseek = _ScriptedLLM([])
+    llm = FailoverLLM(
+        [
+            ("gemini", gemini),
+            ("groq", groq),
+            ("deepseek", deepseek),
+        ]
+    )
+
+    result = await llm.parse("system", "user", AgentFindings)
+
+    assert result.summary == "ok"
+    assert llm.last_provider == "groq"
+    assert gemini.attempts == 1
+    assert groq.attempts == 1
+    assert deepseek.attempts == 0
+
+
+async def test_exhausted_gemini_quota_falls_back_to_groq() -> None:
+    gemini = _ScriptedLLM([_ProviderError(429) for _ in range(10)])
+    groq = _ScriptedLLM([])
+    llm = FailoverLLM([("gemini", gemini), ("groq", groq)])
+
+    result = await llm.parse("system", "user", AgentFindings)
+
+    assert result.summary == "ok"
+    assert llm.last_provider == "groq"
+    assert gemini.attempts == providers.MAX_INFERENCE_ATTEMPTS
+    assert groq.attempts == 1
+
+
+def test_configured_provider_order_is_gemini_groq_deepseek(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    compatible_routes: list[dict] = []
+
+    def fake_compatible(**kwargs):
+        compatible_routes.append(kwargs)
+        return _ScriptedLLM([])
+
+    monkeypatch.setattr(providers, "GeminiLLM", lambda _settings, _ledger: _ScriptedLLM([]))
+    monkeypatch.setattr(providers, "OpenAICompatibleLLM", fake_compatible)
+
+    llm = providers.get_llm(
+        Settings(
+            google_api_key="test-google-key",
+            groq_api_key="test-groq-key",
+            deepseek_api_key="test-deepseek-key",
+        )
+    )
+
+    assert llm.provider_names == ["gemini", "groq", "deepseek"]
+    assert [route["model"] for route in compatible_routes] == [
+        "openai/gpt-oss-120b",
+        "deepseek-v4-flash",
+    ]
+    assert compatible_routes[0]["supports_json_schema"] is True
+
+
+def test_requested_provider_runs_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        providers,
+        "GeminiLLM",
+        lambda _settings, _ledger: _ScriptedLLM([]),
+    )
+    monkeypatch.setattr(providers, "OpenAICompatibleLLM", lambda **_kwargs: _ScriptedLLM([]))
+
+    llm = providers.get_llm(
+        Settings(
+            google_api_key="test-google-key",
+            groq_api_key="test-groq-key",
+            deepseek_api_key="test-deepseek-key",
+        ),
+        "deepseek",
+    )
+
+    assert llm.provider_names == ["deepseek", "gemini", "groq"]
 
 
 @pytest.mark.parametrize(
