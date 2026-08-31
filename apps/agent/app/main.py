@@ -57,7 +57,6 @@ async def health(settings: SettingsDependency) -> dict:
         "service": "proofline-agent",
         "mode": "demo" if settings.demo_mode else "live",
         "daytona": "configured" if settings.daytona_api_key else "awaiting_key",
-        "nosana": "configured" if settings.nosana_endpoint_url else "awaiting_endpoint",
         "at": utc_now(),
     }
 

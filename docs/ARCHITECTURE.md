@@ -8,7 +8,7 @@
 4. Candidate URLs pass an SSRF check before a Daytona sandbox is created.
 5. Playwright, BeautifulSoup, and PyMuPDF run inside that ephemeral sandbox. The sandbox receives no private credentials.
 6. Extracted documents are hashed, canonicalized, clustered by origin, and scored as source records.
-7. The selected primary LLM builds the supporting case while a Nosana-hosted model builds the opposing case.
+7. Separate calls to the selected LLM build the supporting and opposing cases in parallel.
 8. The auditor reconciles both reports against the actual evidence bundle and may refuse a conclusion.
 9. A deterministic layer calculates evidence strength, counts independent origins, and builds evidence edges.
 10. PostgreSQL stores the normalized report and Redis caches the current projection. SSE pushes state changes to the browser.

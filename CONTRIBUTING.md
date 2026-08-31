@@ -21,7 +21,7 @@ feat(graph): show derivative source clusters
 fix(agent): revalidate redirect targets before extraction
 security(api): bound SSE connections per tenant
 test(provenance): cover copied press-release detection
-docs(setup): explain Nosana endpoint deployment
+docs(setup): explain live provider configuration
 ```
 
 Keep each commit independently buildable. Separate refactors from behavior changes. Never commit `.env`, credentials, downloaded research content, or production evidence.

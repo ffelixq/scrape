@@ -158,10 +158,6 @@ export function Landing({ onInvestigate }: LandingProps) {
         </span>
         <span className="divider" />
         <span className="tech-wordmark">
-          NOSANA <small>DECENTRALIZED GPU</small>
-        </span>
-        <span className="divider" />
-        <span className="tech-wordmark">
           PLAYWRIGHT <small>LIVE WEB</small>
         </span>
       </section>

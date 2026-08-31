@@ -39,6 +39,19 @@ def test_agent_requires_internal_authentication() -> None:
     assert response.status_code == 401
 
 
+def test_health_reports_active_runtime_dependencies() -> None:
+    settings = get_settings().model_copy(update={"demo_mode": True})
+    app.dependency_overrides[get_settings] = lambda: settings
+    try:
+        response = TestClient(app).get("/health")
+
+        assert response.status_code == 200
+        assert response.json()["daytona"] in {"configured", "awaiting_key"}
+        assert "nosana" not in response.json()
+    finally:
+        app.dependency_overrides.clear()
+
+
 class _ProviderError(Exception):
     def __init__(self, code: int) -> None:
         super().__init__("upstream detail that must not reach the caller")

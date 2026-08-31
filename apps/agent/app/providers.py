@@ -203,21 +203,4 @@ def get_llm(settings: Settings) -> StructuredLLM:
             base_url=settings.kimi_base_url,
             model=settings.kimi_model,
         )
-    if not settings.nosana_endpoint_url:
-        raise RuntimeError("NOSANA_ENDPOINT_URL is required for the Nosana inference provider")
-    return OpenAICompatibleLLM(
-        api_key=settings.nosana_api_key,
-        base_url=f"{settings.nosana_endpoint_url.rstrip('/')}/v1",
-        model=settings.nosana_model,
-    )
-
-
-def get_nosana_llm(settings: Settings) -> StructuredLLM:
-    """Nosana is always the independent skeptic compute path in live investigations."""
-    if not settings.nosana_endpoint_url:
-        raise RuntimeError("NOSANA_ENDPOINT_URL is required for adversarial verification")
-    return OpenAICompatibleLLM(
-        api_key=settings.nosana_api_key,
-        base_url=f"{settings.nosana_endpoint_url.rstrip('/')}/v1",
-        model=settings.nosana_model,
-    )
+    raise RuntimeError(f"Unsupported LLM provider: {settings.llm_provider}")

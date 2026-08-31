@@ -6,7 +6,7 @@
 - `apps/api/` contains the Express API, BullMQ workers, Prisma integration, and persistence logic.
 - `apps/agent/` contains Python/FastAPI research orchestration and Daytona sandbox integration.
 - `packages/contracts/` holds shared TypeScript/Zod request and response schemas.
-- `sites/` contains the static-site worker and tests; `docs/`, `nosana/`, and `scripts/` contain supporting documentation, deployment assets, and utilities.
+- `sites/` contains the static-site worker and tests; `docs/` and `scripts/` contain supporting documentation, deployment assets, and utilities.
 
 ## Build, Test, and Development Commands
 
@@ -34,4 +34,4 @@ Use short, imperative, scoped messages such as `feat: add source audit`, `fix: h
 
 ## Security & Configuration
 
-Copy `.env.example` to `.env` and keep credentials out of Git. Treat scraped pages and downloaded files as untrusted; route research through Daytona isolation and preserve prompt-injection warnings. Configure `DEMO_MODE=false` for live integrations, and verify PostgreSQL/Redis and optional Nosana/LLM credentials before running end-to-end investigations.
+Copy `.env.example` to `.env` and keep credentials out of Git. Treat scraped pages and downloaded files as untrusted; route research through Daytona isolation and preserve prompt-injection warnings. Configure `DEMO_MODE=false` for live integrations, and verify PostgreSQL/Redis and the selected LLM credentials before running end-to-end investigations.

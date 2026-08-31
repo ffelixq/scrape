@@ -18,7 +18,7 @@ from app.models import (
     SourceRecord,
     utc_now,
 )
-from app.providers import get_llm, get_nosana_llm
+from app.providers import get_llm
 from app.research.daytona import DaytonaResearchComputer
 from app.research.provenance import build_provenance, independent_source_count
 from app.research.search import SearchClient
@@ -33,18 +33,9 @@ in the evidence bundle.
 """
 
 SKEPTIC_PROMPT = """
-Act as an adversarial skeptic running on independent Nosana GPU compute. Try to prove the proposed
-conclusion wrong. Search the supplied evidence for counterexamples, newer disclosures, definition
-changes, copied claims, weak provenance, and absent primary support. Do not invent contradictions.
-Every finding must contain one atomic claim and a verbatim excerpt that contains all numbers and
-dates asserted by that claim. Return only source URLs included in the evidence bundle.
-"""
-
-FALLBACK_SKEPTIC_PROMPT = """
-Act as an adversarial skeptic. The independent Nosana inference endpoint is temporarily unavailable,
-so this is a disclosed continuity fallback on the primary model provider. Try to prove the proposed
-conclusion wrong. Search the supplied evidence for counterexamples, newer disclosures, definition
-changes, copied claims, weak provenance, and absent primary support. Do not invent contradictions.
+Act as an adversarial skeptic. Try to prove the proposed conclusion wrong. Search the supplied
+evidence for counterexamples, newer disclosures, definition changes, copied claims, weak provenance,
+and absent primary support. Do not invent contradictions.
 Every finding must contain one atomic claim and a verbatim excerpt that contains all numbers and
 dates asserted by that claim. Return only source URLs included in the evidence bundle.
 """
@@ -283,50 +274,22 @@ class ResearchOrchestrator:
         provenance = build_provenance(documents, request.investigation_id)
         bundle = _evidence_bundle(request.question, documents)
         primary_llm = get_llm(self.settings)
-        runtime_limitations: list[str] = []
-
-        try:
-            nosana_skeptic = get_nosana_llm(self.settings)
-            skeptic_task = asyncio.wait_for(
-                nosana_skeptic.parse(SKEPTIC_PROMPT, bundle, AgentFindings),
-                timeout=25,
-            )
-        except Exception:
-            skeptic_task = None
-
-        results = await asyncio.gather(
+        skeptic_llm = get_llm(self.settings)
+        supporter_result, skeptic_result = await asyncio.gather(
             primary_llm.parse(SUPPORT_PROMPT, bundle, AgentFindings),
-            skeptic_task if skeptic_task is not None else asyncio.sleep(0, result=None),
+            skeptic_llm.parse(SKEPTIC_PROMPT, bundle, AgentFindings),
             return_exceptions=True,
         )
-        supporter_result, skeptic_result = results
         if isinstance(supporter_result, BaseException):
             raise supporter_result
+        if isinstance(skeptic_result, BaseException):
+            raise skeptic_result
         supporter = supporter_result
-
-        used_nosana_fallback = skeptic_task is None or isinstance(skeptic_result, BaseException)
-        if used_nosana_fallback:
-            skeptic = await primary_llm.parse(
-                FALLBACK_SKEPTIC_PROMPT,
-                bundle,
-                AgentFindings,
-            )
-            runtime_limitations.append(
-                "The independent Nosana skeptic endpoint was unavailable during this run; the "
-                f"adversarial review used the {self.settings.llm_provider} provider as a "
-                "disclosed continuity fallback, so it was not independent of the supporter."
-            )
-        else:
-            skeptic = skeptic_result
-
-        skeptic_label = (
-            "NOSANA"
-            if not used_nosana_fallback
-            else f"{self.settings.llm_provider.upper()} FALLBACK; NOSANA UNAVAILABLE"
-        )
+        skeptic = skeptic_result
         audit_input = (
             f"{bundle}\n\nSUPPORTER REPORT:\n{supporter.model_dump_json()}"
-            f"\n\nSKEPTIC REPORT ({skeptic_label}):\n{skeptic.model_dump_json()}"
+            f"\n\nSKEPTIC REPORT ({self.settings.llm_provider.upper()}):\n"
+            f"{skeptic.model_dump_json()}"
         )
         audit = await primary_llm.parse(AUDITOR_PROMPT, audit_input, AuditDecision)
         return self._assemble(
@@ -336,7 +299,6 @@ class ResearchOrchestrator:
             supporter,
             skeptic,
             audit,
-            runtime_limitations,
         )
 
     def _assemble(
@@ -347,7 +309,6 @@ class ResearchOrchestrator:
         supporter,
         skeptic,
         audit,
-        runtime_limitations,
     ):
         source_by_id = {source.id: source for source in provenance.sources}
         document_by_source_id: dict[str, ScrapedDocument] = {}
@@ -470,12 +431,11 @@ class ResearchOrchestrator:
         score = round(sum(claim.evidenceStrength for claim in claims) / max(1, len(claims)))
         score = max(
             0 if not evidence else 10,
-            score - min(20, (len(audit.limitations) + len(runtime_limitations)) * 3),
+            score - min(20, len(audit.limitations) * 3),
         )
         limitations = list(
             dict.fromkeys(
                 [
-                    *runtime_limitations,
                     *audit.limitations,
                     *supporter.missing_evidence,
                     *skeptic.missing_evidence,
@@ -680,7 +640,7 @@ class ResearchOrchestrator:
             },
             audit={
                 "supportingAgentSummary": "Historic growth supports the case.",
-                "opposingAgentSummary": "Nosana skeptic found a newer liquidity conflict.",
+                "opposingAgentSummary": "The skeptic found a newer liquidity conflict.",
                 "auditorSummary": "The available evidence does not verify current readiness.",
             },
         )

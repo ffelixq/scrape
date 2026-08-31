@@ -26,6 +26,10 @@ describe('Proofline public experience', () => {
   it('starts an evidence investigation from the hero', async () => {
     render(<App />);
     expect(screen.getByText(/Evidence before/i)).toBeInTheDocument();
+    const infrastructure = screen.getByLabelText(/Technology partners/i);
+    expect(infrastructure).toHaveTextContent(/DAYTONA\s*ISOLATED COMPUTE/i);
+    expect(infrastructure).toHaveTextContent(/PLAYWRIGHT\s*LIVE WEB/i);
+    expect(infrastructure).not.toHaveTextContent(/NOSANA/i);
     fireEvent.change(screen.getByLabelText(/Research question/i), {
       target: { value: 'Is this company financially healthy enough to invest in?' },
     });

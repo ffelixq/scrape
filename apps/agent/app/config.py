@@ -17,7 +17,7 @@ class Settings(BaseSettings):
 
     demo_mode: bool = True
     internal_agent_token: str = "local-development-token"
-    llm_provider: Literal["openai", "gemini", "kimi", "nosana"] = "openai"
+    llm_provider: Literal["openai", "gemini", "kimi"] = "openai"
     llm_temperature: float = Field(default=0.1, ge=0, le=1)
 
     openai_api_key: str = ""
@@ -40,10 +40,6 @@ class Settings(BaseSettings):
     daytona_command_timeout_seconds: int = Field(default=120, ge=10, le=600)
     daytona_domain_allow_list: str = ""
 
-    nosana_endpoint_url: str = ""
-    nosana_api_key: str = ""
-    nosana_model: str = "llama3.1"
-
     max_sources_per_investigation: int = Field(default=20, ge=3, le=50)
     max_download_bytes: int = Field(default=25_000_000, ge=1_000_000, le=100_000_000)
     research_timeout_seconds: int = Field(default=300, ge=30, le=1_800)
@@ -62,7 +58,6 @@ class Settings(BaseSettings):
             "openai": self.openai_api_key,
             "gemini": self.google_api_key,
             "kimi": self.kimi_api_key,
-            "nosana": self.nosana_endpoint_url,
         }
         if not provider_keys[self.llm_provider]:
             missing.append(
@@ -70,11 +65,8 @@ class Settings(BaseSettings):
                     "openai": "OPENAI_API_KEY",
                     "gemini": "GOOGLE_API_KEY",
                     "kimi": "KIMI_API_KEY",
-                    "nosana": "NOSANA_ENDPOINT_URL",
                 }[self.llm_provider]
             )
-        if not self.nosana_endpoint_url:
-            missing.append("NOSANA_ENDPOINT_URL")
         if missing:
             raise RuntimeError(f"Live mode is missing: {', '.join(missing)}")
 

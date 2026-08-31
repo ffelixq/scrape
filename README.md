@@ -2,7 +2,7 @@
 
 > Don’t ask AI for an answer. Ask it to prove one.
 
-Proofline is an evidence-first AI investigator for decisions where a plausible answer is not good enough. It searches live sources, extracts checkable claims, traces copied information to its origin, investigates contradictions, and runs an independent skeptic before issuing a verdict. `INCONCLUSIVE` and `UNVERIFIABLE` are valid successful outcomes.
+Proofline is an evidence-first AI investigator for decisions where a plausible answer is not good enough. It searches live sources, extracts checkable claims, traces copied information to its origin, investigates contradictions, and runs an adversarial skeptic before issuing a verdict. `INCONCLUSIVE` and `UNVERIFIABLE` are valid successful outcomes.
 
 The repository is fully runnable without credentials. Demo mode presents a complete illustrative investigation; add the keys in `.env` to switch on live research.
 
@@ -16,8 +16,8 @@ The repository is fully runnable without credentials. Demo mode presents a compl
 - Redis caching and BullMQ research jobs with local fallback
 - Python/FastAPI supporter → skeptic → auditor pipeline
 - Daytona ephemeral sandbox adapter for Playwright, PDFs, downloads, and extraction
-- Mandatory Nosana skeptic inference path for independent adversarial review
-- OpenAI Responses, Gemini, Kimi, and Nosana/vLLM provider adapters
+- Provider-neutral adversarial review using the selected LLM
+- OpenAI Responses, Gemini, and Kimi provider adapters
 - Prompt-injection detection, SSRF blocking, content limits, and typed trust boundaries
 - Dockerfiles, local infrastructure, tests, CI, release containers, and contribution standards
 
@@ -36,7 +36,7 @@ Express API ── Redis / BullMQ
                  │    ├─ BeautifulSoup
                  │    └─ PyMuPDF
                  ├─ Support agent (selected LLM)
-                 ├─ Skeptic agent (Nosana GPU)
+                 ├─ Skeptic agent (selected LLM)
                  └─ Evidence auditor (selected LLM)
 ```
 
@@ -65,32 +65,20 @@ Open `http://localhost:5173`. With `DEMO_MODE=true`, no external account or API 
 ## Turn on live investigations
 
 1. Put your credentials into the root `.env`. Every supported variable is documented in `.env.example`.
-2. Deploy the Nosana vLLM job:
+2. Add `DAYTONA_API_KEY`, a search key (`TAVILY_API_KEY` or `SERPER_API_KEY`), and the key for your selected LLM provider.
+3. Set `LLM_PROVIDER`, set `DEMO_MODE=false`, and restart the services.
 
-   ```bash
-   nosana job post \
-     --market EzuHhkrhmV98HWzREsgLenKj2iHdJgrKmzfL8psP8Aso \
-     --file nosana/proofline-vllm.json
-   ```
+The supporter, skeptic, and auditor all use the selected LLM provider. The supporter and skeptic are separate adversarial passes, but they are not independent model compute. Daytona remains mandatory: live web content and files are retrieved and processed only inside an ephemeral sandbox.
 
-3. Copy the returned service URL into `NOSANA_ENDPOINT_URL`.
-4. Add `DAYTONA_API_KEY`, a search key (`TAVILY_API_KEY` or `SERPER_API_KEY`), and one primary LLM key.
-5. Set `DEMO_MODE=false` and restart the services.
-
-Nosana is not a logo-only integration. In every live run, the adversarial skeptic executes against the Nosana-hosted OpenAI-compatible vLLM endpoint. Daytona is also mandatory: live web content and files are retrieved and processed only inside an ephemeral sandbox.
-
-### Primary LLM selection
+### LLM selection
 
 Set `LLM_PROVIDER` to one of:
 
-| Value    | Required configuration                | Role                        |
-| -------- | ------------------------------------- | --------------------------- |
-| `openai` | `OPENAI_API_KEY`, `OPENAI_MODEL`      | Supporter and final auditor |
-| `gemini` | `GOOGLE_API_KEY`, `GEMINI_MODEL`      | Supporter and final auditor |
-| `kimi`   | `KIMI_API_KEY`, `KIMI_MODEL`          | Supporter and final auditor |
-| `nosana` | `NOSANA_ENDPOINT_URL`, `NOSANA_MODEL` | All three agents            |
-
-Nosana remains the skeptic for the first three options.
+| Value    | Required configuration           | Role                            |
+| -------- | -------------------------------- | ------------------------------- |
+| `openai` | `OPENAI_API_KEY`, `OPENAI_MODEL` | Supporter, skeptic, and auditor |
+| `gemini` | `GOOGLE_API_KEY`, `GEMINI_MODEL` | Supporter, skeptic, and auditor |
+| `kimi`   | `KIMI_API_KEY`, `KIMI_MODEL`     | Supporter, skeptic, and auditor |
 
 ## Evidence outcomes
 
@@ -122,7 +110,6 @@ apps/web         React/Vite interface
 apps/api         Express/Prisma API and queue worker
 apps/agent       Python research and evidence orchestration
 packages/contracts  Shared API schemas and types
-nosana           GPU inference job definition
 docs             Architecture and security decisions
 .github          CI/CD and contribution automation
 ```

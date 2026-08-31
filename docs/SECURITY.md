@@ -19,7 +19,7 @@ Proofline assumes every website, redirect, PDF, archive, document, and extracted
 
 - Ephemeral sandbox with an absolute TTL and deletion in `finally`.
 - Domain allow-list combines approved research hosts and fixed package/browser hosts. For stricter production, build a Daytona snapshot and remove package domains.
-- No search, database, Redis, Nosana, or LLM credentials enter the sandbox.
+- No search, database, Redis, or LLM credentials enter the sandbox.
 - Fixed code is base64-transferred; URLs are validated before inclusion and encoded as data.
 - Browser and PDF output is limited by bytes and characters before export.
 
