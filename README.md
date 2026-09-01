@@ -18,7 +18,7 @@ The repository is fully runnable without credentials. Demo mode presents a compl
 - Redis caching and BullMQ research jobs with local fallback
 - Python/FastAPI supporter → skeptic → auditor pipeline
 - Daytona ephemeral sandbox adapter for Playwright, PDFs, downloads, and extraction
-- Per-investigation model and search selection with automatic provider failover
+- Dual-channel discovery: Tavily and Serper both run with their own queries, merged and deduplicated
 - Durable provider usage dashboard and a hard DeepSeek daily token budget
 - Gemini, Groq, and DeepSeek provider adapters
 - Prompt-injection detection, SSRF blocking, content limits, and typed trust boundaries
@@ -33,7 +33,7 @@ Express API ── Redis / BullMQ
      │              │
  PostgreSQL         ▼
                Python orchestrator
-                 ├─ Search provider
+                 ├─ Discovery: Tavily + Serper (merged, deduplicated)
                  ├─ Daytona sandbox
                  │    ├─ Playwright
                  │    ├─ BeautifulSoup
@@ -95,16 +95,35 @@ refresh, a closed tab, or a return from history.
 ## Turn on live investigations
 
 1. Put your credentials into the root `.env`. Every supported variable is documented in `.env.example`.
-2. Add `DAYTONA_API_KEY`, at least one search key, and at least one LLM key. Tavily is the default search provider; configure both `TAVILY_API_KEY` and `SERPER_API_KEY` to fall back automatically when either provider errors, exhausts its quota, or returns no usable results.
+2. Add `DAYTONA_API_KEY`, at least one search key, and at least one LLM key. Configure both `TAVILY_API_KEY` and `SERPER_API_KEY` to run both discovery channels; with one key the remaining provider also issues the absent one's queries, so the investigation still asks the full set of questions but searches a single index.
 3. Set `DEMO_MODE=false` and restart the services.
 
 The supporter, skeptic, and auditor each use the configured LLM failover chain. The supporter and skeptic are separate adversarial passes, but they are not independent model compute. Daytona remains mandatory: live web content and files are retrieved and processed only inside an ephemeral sandbox.
 
-### Provider selection and failover
+### Search discovery: two channels, one source list
 
-The website defaults to Gemini and Tavily. Each investigation can select a different primary LLM
-and search provider. The selected provider runs first; configured alternatives remain available as
-fallbacks, so choosing DeepSeek produces `DeepSeek → Gemini → Groq`, for example.
+Tavily and Serper are discovery providers, not evidence. Both run on every investigation, each
+issuing its own queries — Tavily phrases the question for research and analysis, Serper for
+filings, PDFs and primary documents — and each covers both the supporting and the opposing side.
+The merged results are deduplicated by canonical URL, so a page both providers return is one
+source and not two. Which providers surfaced a URL is recorded as discovery metadata; it is never
+treated as corroboration, because independence is established separately by `build_provenance`
+from the documents actually retrieved.
+
+`SEARCH_PROVIDER` no longer decides who runs. It decides which channel leads the merged list, and
+so which results survive the `MAX_SOURCES_PER_INVESTIGATION` cut. A run survives one provider
+failing entirely, because the other has already searched; discovery only fails when every query
+across both providers fails.
+
+Each investigation reports its own funnel — result rows returned, unique URLs after
+deduplication, and independent origins after provenance — so raw result counts are never
+presentable as a source count.
+
+### LLM provider selection and failover
+
+The website defaults to Gemini. Each investigation can select a different primary LLM. The
+selected provider runs first; configured alternatives remain available as fallbacks, so choosing
+DeepSeek produces `DeepSeek → Gemini → Groq`, for example.
 
 | Provider | Configuration                        | Default model         |
 | -------- | ------------------------------------ | --------------------- |

@@ -41,9 +41,12 @@ The JSON projection makes report reads fast; normalized rows support analytics, 
 - LLM output is schema-constrained, then validated again at the API boundary.
 - Evidence strength is deterministic and inspectable. LLMs classify and explain; they do not assign a probability of truth.
 - A timeout or missing source produces `UNVERIFIABLE`, never a guessed answer.
-- Search providers are untrusted inputs. Each query tries the selected provider and then the other
-  configured provider on errors or empty results. Unusable rows are discarded; discovery aborts
-  only when every query fails across the available providers.
+- Search providers are untrusted inputs and discovery only: they decide where to look, never what
+  is true. Tavily and Serper both run on every investigation, each issuing its own queries across
+  the supporting and opposing sides, and the merged results are deduplicated by canonical URL so a
+  page both return is one source. Unusable rows are discarded; discovery aborts only when every
+  query fails across both providers. There is no per-investigation provider choice, because there
+  is nothing to choose - `SEARCH_PROVIDER` only orders the merged list.
 - Inference calls try the user-selected provider first, then the other configured providers. Calls
   are retried a bounded number of times on transient provider failures, because a
   momentary overload would otherwise discard a sandbox and a completed scrape. Retries live in one

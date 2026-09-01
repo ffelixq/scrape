@@ -158,14 +158,25 @@ export function Landing({ onInvestigate, providerUsage, providerUsageError }: La
         </a>
       </section>
 
-      <section className="trust-strip" aria-label="Technology partners">
+      {/* The retrieval toolchain, stated rather than chosen: every investigation uses all of it.
+          Discovery and retrieval are listed as the separate stages they are - the search
+          providers find candidate pages, and only the sandbox actually opens them. */}
+      <section className="trust-strip" aria-label="Research infrastructure">
         <span className="trust-label">RESEARCH INFRASTRUCTURE</span>
+        <span className="tech-wordmark">
+          TAVILY + SERPER <small>SOURCE DISCOVERY</small>
+        </span>
+        <span className="divider" />
         <span className="tech-wordmark">
           DAYTONA <small>ISOLATED COMPUTE</small>
         </span>
         <span className="divider" />
         <span className="tech-wordmark">
-          PLAYWRIGHT <small>LIVE WEB</small>
+          PLAYWRIGHT <small>PAGE RETRIEVAL</small>
+        </span>
+        <span className="divider" />
+        <span className="tech-wordmark">
+          PYMUPDF <small>DOCUMENT EXTRACTION</small>
         </span>
       </section>
 
@@ -301,7 +312,6 @@ export function Landing({ onInvestigate, providerUsage, providerUsageError }: La
                 onInvestigate({
                   question: `Investigate this: ${item}`,
                   llmProvider: 'gemini',
-                  searchProvider: 'tavily',
                 })
               }
             >

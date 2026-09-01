@@ -8,7 +8,9 @@ from app.models import (
     InvestigationRequest,
     ScrapedDocument,
     SearchCandidate,
+    SearchCoverage,
 )
+from app.research.search import Discovery
 
 
 class _RecordingLLM:
@@ -43,18 +45,28 @@ def _agent_findings(summary: str) -> AgentFindings:
 
 def _install_live_dependencies(monkeypatch, llms: list[_RecordingLLM]) -> None:
     class _SearchClient:
-        def __init__(self, settings, preferred_provider):
+        def __init__(self, settings):
             self.settings = settings
-            self.preferred_provider = preferred_provider
 
         async def discover(self, question):
-            return [
+            candidates = [
                 SearchCandidate(
                     url="https://example.com/report",
                     title="Example report",
                     query_role="NEUTRAL",
+                    providers=["tavily", "serper"],
                 )
             ]
+            return Discovery(
+                candidates=candidates,
+                coverage=SearchCoverage(
+                    resultsDiscovered=2,
+                    uniqueSources=1,
+                    resultsByProvider={"tavily": 1, "serper": 1},
+                    overlappingSources=1,
+                    queriesIssued=8,
+                ),
+            )
 
         async def close(self):
             return None

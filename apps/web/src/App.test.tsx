@@ -26,9 +26,13 @@ describe('Proofline public experience', () => {
   it('opens a live investigation workspace from the hero', async () => {
     render(<App />);
     expect(screen.getByText(/Evidence before/i)).toBeInTheDocument();
-    const infrastructure = screen.getByLabelText(/Technology partners/i);
+    // The retrieval toolchain is stated here because it is fixed: none of it is selectable in
+    // the form, and discovery is listed separately from the sandbox that actually opens pages.
+    const infrastructure = screen.getByLabelText(/Research infrastructure/i);
+    expect(infrastructure).toHaveTextContent(/TAVILY \+ SERPER\s*SOURCE DISCOVERY/i);
     expect(infrastructure).toHaveTextContent(/DAYTONA\s*ISOLATED COMPUTE/i);
-    expect(infrastructure).toHaveTextContent(/PLAYWRIGHT\s*LIVE WEB/i);
+    expect(infrastructure).toHaveTextContent(/PLAYWRIGHT\s*PAGE RETRIEVAL/i);
+    expect(infrastructure).toHaveTextContent(/PYMUPDF\s*DOCUMENT EXTRACTION/i);
     expect(infrastructure).not.toHaveTextContent(/NOSANA/i);
 
     fireEvent.change(screen.getByLabelText(/Research question/i), {

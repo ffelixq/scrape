@@ -23,8 +23,6 @@ export const evidenceRelationSchema = z.enum(['SUPPORTS', 'OPPOSES', 'CONTEXT'])
 
 export const llmProviderSchema = z.enum(['gemini', 'groq', 'deepseek']);
 
-export const searchProviderSchema = z.enum(['tavily', 'serper']);
-
 export const createInvestigationSchema = z.object({
   question: z
     .string()
@@ -34,7 +32,6 @@ export const createInvestigationSchema = z.object({
   context: z.string().trim().max(4_000).optional().default(''),
   mode: z.enum(['STANDARD', 'DEEP']).optional().default('STANDARD'),
   llmProvider: llmProviderSchema.optional().default('gemini'),
-  searchProvider: searchProviderSchema.optional().default('tavily'),
 });
 
 export const providerUsageSchema = z.object({
@@ -135,6 +132,15 @@ export const conversationMessageSchema = z.object({
   failed: z.boolean().default(false),
 });
 
+export const searchCoverageSchema = z.object({
+  resultsDiscovered: z.number().int().nonnegative(),
+  uniqueSources: z.number().int().nonnegative(),
+  resultsByProvider: z.record(z.string(), z.number().int().nonnegative()),
+  overlappingSources: z.number().int().nonnegative(),
+  queriesIssued: z.number().int().nonnegative(),
+  queriesFailed: z.number().int().nonnegative(),
+});
+
 export const investigationSchema = z.object({
   id: z.string(),
   question: z.string(),
@@ -159,6 +165,17 @@ export const investigationSchema = z.object({
     primarySources: z.number().int().nonnegative(),
     contradictions: z.number().int().nonnegative(),
     falseConsensusClusters: z.number().int().nonnegative(),
+  }),
+  // Discovery-stage arithmetic: how many rows the search providers returned, and how few unique
+  // URLs they amount to. Carries a default so investigations stored before this field existed
+  // still parse. Kept separate from `metrics`, which counts what was retrieved and judged.
+  searchCoverage: searchCoverageSchema.default({
+    resultsDiscovered: 0,
+    uniqueSources: 0,
+    resultsByProvider: {},
+    overlappingSources: 0,
+    queriesIssued: 0,
+    queriesFailed: 0,
   }),
   audit: z.object({
     supportingAgentSummary: z.string(),
@@ -227,10 +244,20 @@ export type Claim = z.infer<typeof claimSchema>;
 export type Contradiction = z.infer<typeof contradictionSchema>;
 export type SecurityEvent = z.infer<typeof securityEventSchema>;
 export type Investigation = z.infer<typeof investigationSchema>;
+export type SearchCoverage = z.infer<typeof searchCoverageSchema>;
+
+/** Discovery coverage for an investigation that has not searched yet, or predates the field. */
+export const emptySearchCoverage: SearchCoverage = {
+  resultsDiscovered: 0,
+  uniqueSources: 0,
+  resultsByProvider: {},
+  overlappingSources: 0,
+  queriesIssued: 0,
+  queriesFailed: 0,
+};
 export type InvestigationEvent = z.infer<typeof investigationEventSchema>;
 export type CreateInvestigationInput = z.infer<typeof createInvestigationSchema>;
 export type LlmProvider = z.infer<typeof llmProviderSchema>;
-export type SearchProvider = z.infer<typeof searchProviderSchema>;
 export type ProviderUsage = z.infer<typeof providerUsageSchema>;
 export type ProviderUsageDashboard = z.infer<typeof providerUsageDashboardSchema>;
 export type ConversationRole = z.infer<typeof conversationRoleSchema>;

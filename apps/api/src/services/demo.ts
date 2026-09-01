@@ -203,6 +203,16 @@ export function buildDemoInvestigation(id: string, question: string): Investigat
       contradictions: 2,
       falseConsensusClusters: 1,
     },
+    // 23 result rows from two discovery channels collapse to 14 URLs, 5 of which both channels
+    // found. Those 14 are retrieved, and only 6 prove to have independent origins.
+    searchCoverage: {
+      resultsDiscovered: 23,
+      uniqueSources: 14,
+      resultsByProvider: { tavily: 10, serper: 13 },
+      overlappingSources: 5,
+      queriesIssued: 8,
+      queriesFailed: 0,
+    },
     audit: {
       supportingAgentSummary:
         'Audited growth and positive year-end working capital support the case.',

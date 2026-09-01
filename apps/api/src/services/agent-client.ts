@@ -29,7 +29,6 @@ export async function runAgentInvestigation(
         context: input.context,
         mode: input.mode,
         llm_provider: input.llmProvider,
-        search_provider: input.searchProvider,
       }),
       signal: controller.signal,
     });

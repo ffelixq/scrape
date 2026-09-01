@@ -1,5 +1,6 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import {
+  emptySearchCoverage,
   investigationSchema,
   type ConversationMessage,
   type CreateInvestigationInput,
@@ -40,6 +41,7 @@ function queuedInvestigation(id: string, input: CreateInvestigationInput): Inves
       contradictions: 0,
       falseConsensusClusters: 0,
     },
+    searchCoverage: emptySearchCoverage,
     audit: {
       supportingAgentSummary: '',
       opposingAgentSummary: '',
@@ -100,7 +102,6 @@ export class InvestigationRepository {
       context: record.context,
       mode: record.mode === 'DEEP' ? 'DEEP' : 'STANDARD',
       llmProvider: 'gemini',
-      searchProvider: 'tavily',
     });
     skeleton.status = record.status;
     skeleton.createdAt = record.createdAt.toISOString();
@@ -117,6 +118,34 @@ export class InvestigationRepository {
     if (prisma) {
       await prisma.investigation.update({ where: { id }, data: { status } }).catch(() => undefined);
     }
+  }
+
+  /**
+   * Take exclusive ownership of a queued investigation and move it to RESEARCHING.
+   *
+   * Returns false when the investigation is already running, finished or gone, which is how a
+   * research run that arrives twice is stopped: a bounded enqueue that timed out runs the
+   * investigation in-process, and if Redis later accepts the job after all, the worker finds the
+   * record past QUEUED and drops it instead of researching the same question a second time.
+   *
+   * The read and the write below are deliberately not separated by an await, so within this
+   * process the claim is atomic. Redis and Postgres are updated afterwards; both are followers of
+   * the in-memory record here, exactly as in `updateStatus`.
+   */
+  async claim(id: string): Promise<boolean> {
+    const current = memory.get(id) ?? (await this.get(id));
+    if (!current || current.status !== 'QUEUED') return false;
+
+    const claimed: Investigation = { ...current, status: 'RESEARCHING' };
+    memory.set(id, claimed);
+    await cacheInvestigation(claimed);
+    investigationEvents.publish(claimed);
+    if (prisma) {
+      await prisma.investigation
+        .update({ where: { id }, data: { status: 'RESEARCHING' } })
+        .catch(() => undefined);
+    }
+    return true;
   }
 
   async complete(id: string, rawResult: Investigation): Promise<Investigation> {
