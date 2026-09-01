@@ -14,6 +14,7 @@ from app.models import (
     InvestigationRequest,
     InvestigationResult,
     ScrapedDocument,
+    SearchCoverage,
     SecurityEventRecord,
     SourceRecord,
     utc_now,
@@ -255,20 +256,23 @@ class ResearchOrchestrator:
             return self._demo_result(request)
 
         self.settings.require_live_credentials()
-        search = SearchClient(self.settings, request.search_provider)
+        search = SearchClient(self.settings)
         try:
-            candidates = await search.discover(request.question)
+            discovery = await search.discover(request.question)
         finally:
             await search.close()
-        if not candidates:
+        coverage = discovery.coverage
+        if not discovery.candidates:
             return self._cannot_verify(
-                request, "No candidate sources were returned by the search provider."
+                request,
+                "No candidate sources were returned by the search providers.",
+                coverage,
             )
 
-        documents = await DaytonaResearchComputer(self.settings).scrape(candidates)
+        documents = await DaytonaResearchComputer(self.settings).scrape(discovery.candidates)
         if not documents:
             return self._cannot_verify(
-                request, "No source could be retrieved inside the secure sandbox."
+                request, "No source could be retrieved inside the secure sandbox.", coverage
             )
 
         provenance = build_provenance(documents, request.investigation_id)
@@ -301,6 +305,7 @@ class ResearchOrchestrator:
             supporter,
             skeptic,
             audit,
+            coverage,
         )
 
     def _assemble(
@@ -311,6 +316,7 @@ class ResearchOrchestrator:
         supporter,
         skeptic,
         audit,
+        coverage,
     ):
         source_by_id = {source.id: source for source in provenance.sources}
         document_by_source_id: dict[str, ScrapedDocument] = {}
@@ -489,6 +495,7 @@ class ResearchOrchestrator:
                 "contradictions": len(contradictions),
                 "falseConsensusClusters": provenance.false_consensus_clusters,
             },
+            searchCoverage=coverage,
             audit={
                 "supportingAgentSummary": (
                     "; ".join(supported_claims)
@@ -504,7 +511,12 @@ class ResearchOrchestrator:
             },
         )
 
-    def _cannot_verify(self, request: InvestigationRequest, reason: str) -> InvestigationResult:
+    def _cannot_verify(
+        self,
+        request: InvestigationRequest,
+        reason: str,
+        coverage: SearchCoverage | None = None,
+    ) -> InvestigationResult:
         return InvestigationResult(
             id=request.investigation_id,
             question=request.question,
@@ -527,6 +539,9 @@ class ResearchOrchestrator:
                 "contradictions": 0,
                 "falseConsensusClusters": 0,
             },
+            # A run that reaches no verdict still reports what discovery did, so "cannot verify"
+            # can be read as the evidenced outcome it is rather than as a silent failure.
+            searchCoverage=coverage or SearchCoverage(),
             audit={
                 "supportingAgentSummary": "No adequate support found.",
                 "opposingAgentSummary": "No adequate opposing evidence found.",
@@ -640,6 +655,16 @@ class ResearchOrchestrator:
                 "contradictions": 2,
                 "falseConsensusClusters": 1,
             },
+            # 23 rows from two providers collapse to 14 URLs, 5 of which both providers found.
+            # Those 14 are checked, and only 6 turn out to have independent origins.
+            searchCoverage=SearchCoverage(
+                resultsDiscovered=23,
+                uniqueSources=14,
+                resultsByProvider={"tavily": 10, "serper": 13},
+                overlappingSources=5,
+                queriesIssued=8,
+                queriesFailed=0,
+            ),
             audit={
                 "supportingAgentSummary": "Historic growth supports the case.",
                 "opposingAgentSummary": "The skeptic found a newer liquidity conflict.",

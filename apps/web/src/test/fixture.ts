@@ -105,6 +105,14 @@ export function investigationFixture(overrides: Partial<Investigation> = {}): In
       contradictions: 1,
       falseConsensusClusters: 1,
     },
+    searchCoverage: {
+      resultsDiscovered: 5,
+      uniqueSources: 2,
+      resultsByProvider: { tavily: 3, serper: 2 },
+      overlappingSources: 1,
+      queriesIssued: 8,
+      queriesFailed: 0,
+    },
     audit: {
       supportingAgentSummary: 'Audited growth supports the case.',
       opposingAgentSummary: 'The certification claim has no independent confirmation.',

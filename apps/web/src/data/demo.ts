@@ -26,6 +26,14 @@ export const demoInvestigation: Investigation = {
     contradictions: 2,
     falseConsensusClusters: 1,
   },
+  searchCoverage: {
+    resultsDiscovered: 23,
+    uniqueSources: 14,
+    resultsByProvider: { tavily: 10, serper: 13 },
+    overlappingSources: 5,
+    queriesIssued: 8,
+    queriesFailed: 0,
+  },
   sources: [
     {
       id: 'src-acra',

@@ -1,3 +1,4 @@
+import { emptySearchCoverage } from '@proofline/contracts';
 import type { Investigation, InvestigationSummary } from '@proofline/contracts';
 import { useSyncExternalStore } from 'react';
 import type { InvestigationFormInput } from '../components/InvestigationForm';
@@ -82,6 +83,7 @@ function skeleton(id: string, question: string): Investigation {
       contradictions: 0,
       falseConsensusClusters: 0,
     },
+    searchCoverage: emptySearchCoverage,
     audit: { supportingAgentSummary: '', opposingAgentSummary: '', auditorSummary: '' },
   };
 }

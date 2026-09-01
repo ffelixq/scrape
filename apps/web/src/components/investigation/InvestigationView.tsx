@@ -18,6 +18,7 @@ import { EvidenceGraph } from '../EvidenceGraph';
 import { SourceDrawer } from '../SourceDrawer';
 import { ConversationPanel } from './ConversationPanel';
 import { DoubtTimeline } from './DoubtTimeline';
+import { DiscoveryCoverage } from './DiscoveryCoverage';
 import { EvidenceSummaryPanel } from './EvidenceSummaryPanel';
 import { ResearchStatus } from './ResearchStatus';
 import {
@@ -300,6 +301,7 @@ export function InvestigationView({
               <p>The conclusion first, the reasoning underneath it.</p>
             </div>
             <EvidenceSummaryPanel investigation={investigation} />
+            <DiscoveryCoverage investigation={investigation} />
           </section>
 
           <section id="graph" className="panel graph-panel">

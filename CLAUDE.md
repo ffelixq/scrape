@@ -90,6 +90,32 @@ important file in the repo. Models propose; deterministic code decides:
 `independenceGroup`, so ten pages copying one press release count once. When changing any of this,
 treat it as high-risk per CONTRIBUTING.md and add regression coverage in `tests/test_evidence_gates.py`.
 
+### Search discovery
+
+`research/search.py` runs Tavily and Serper as two channels, not a primary and a spare. Each is a
+`SearchProviderClient` subclass owning two things: the queries it contributes (`plan`) and how it
+calls its API (`run`). Both providers run on every investigation, each with its own phrasing of the
+question and each covering SUPPORT and OPPOSE, so the two channels look in different places rather
+than asking the same question twice. Query volume is unchanged from the old failover design — 4
+queries per provider instead of 8 to one — so enabling the second channel did not double search
+spend.
+
+`SearchClient.discover` returns a `Discovery`: the merged candidates plus a `SearchCoverage`
+record. `_merge` collapses candidates by canonical URL and unions the `providers` list, so a page
+both providers return is one candidate carrying `["tavily", "serper"]`. **That list is discovery
+metadata and must never be read as corroboration** — two providers agreeing is one source, and
+independence is decided only by `build_provenance` from the retrieved documents. `SEARCH_PROVIDER`
+now decides only which channel leads the merged list, and so what survives the
+`max_sources_per_investigation` cut. One provider failing is survivable because the other already
+ran; discovery raises only when every query across both fails.
+
+`SearchCoverage` crosses the typed boundary like everything else, so `models.py` and
+`packages/contracts/src/index.ts` must change together. It carries a default on both sides because
+investigations stored before the field existed must still parse. It counts discovery only —
+`metrics.sourcesChecked` counts what the sandbox retrieved and `metrics.independentSources` counts
+distinct origins — and `components/investigation/DiscoveryCoverage.tsx` renders the three as a
+funnel precisely so result rows are never presentable as a source count.
+
 ### Adversarial roles
 
 The supporter and skeptic run as separate concurrent calls through the user-selected provider first,
@@ -135,9 +161,9 @@ detail returned from `POST /investigate` comes from a closed vocabulary in
 `main.py:classify_live_failure`, because upstream error text can contain sandbox or page content.
 `docs/SECURITY.md` is the threat model; keep it in sync when you touch these paths.
 
-## Current state (uncommitted work in progress)
+## Current state
 
-Two sessions of uncommitted work sit in the tree. The first hardened live evidence investigations
+The work below is committed on `jayden-branch`. The first session hardened live evidence investigations
 (continuing Codex's `0cd369b`); the second rebuilt the interface around a persistent workspace.
 
 ### Interface rebuild (this session)
@@ -166,18 +192,27 @@ Two sessions of uncommitted work sit in the tree. The first hardened live eviden
 
 ### Known-broken, still to fix
 
-1. **An unreachable Redis hangs the API forever.** Verified experimentally: with `DEMO_MODE=false`,
-   `REDIS_URL` set and Redis down, `queue.add()` in `apps/api/src/services/research-queue.ts` was
-   still pending after 12s and never settles, because ioredis is constructed with
-   `maxRetriesPerRequest: null` and buffers commands indefinitely. `POST /api/investigations` never
-   returns. Intended fix: bound the enqueue and fall back to the in-process processor that the
-   no-Redis path already uses, plus guard the processor against re-processing an investigation that
-   is already `COMPLETED`/`FAILED` if the timed-out enqueue later lands. **Not applied.**
+1. ~~**An unreachable Redis hangs the API forever.**~~ Fixed. `queue.add()` is now bounded by
+   `RESEARCH_ENQUEUE_TIMEOUT_MS` (5s) and falls back to the same in-process processor the no-Redis
+   path uses, so `POST /api/investigations` answers either way. Because a timed-out enqueue can
+   still reach Redis later, `investigationRepository.claim()` moves `QUEUED -> RESEARCHING` as the
+   single owner of a run: a job that lands afterwards finds the record past `QUEUED` and drops it
+   rather than researching the question twice. A BullMQ redelivery of a job that already claimed
+   its investigation is the one caller that bypasses the claim, so the retry policy still works.
+   Two smaller repairs came with it — the fallback previously built a fake `Job` with no `opts`,
+   so the `job.opts.attempts` read threw inside the catch and left the investigation stuck in
+   `RESEARCHING` instead of `FAILED`; and the queue connection had no `error` listener, which for
+   an EventEmitter is a thrown error. Reconnects now back off to 30s and one throttled warning is
+   logged. Re-verified against a dead Redis: 202 in 5.5s, then 0.4s for later requests once the
+   connection is known to be down, and the run reaches a terminal state. Covered by
+   `apps/api/src/tests/research-queue.test.ts`.
 2. **A full live run has never completed end-to-end.** The Gemini free-tier key hit its daily quota
    and returned 503 under load. Verifying the remaining pipeline needs an LLM key with sufficient
    quota for all three analysis calls. The live `/follow-up` path is likewise unverified against a
    real provider; its logic is covered by `tests/test_followup.py` with a stub model.
-3. `INTERNAL_AGENT_TOKEN` in `.env` is still the literal placeholder `replace-with-a-long-random-string`.
+3. ~~`INTERNAL_AGENT_TOKEN` in `.env` is still the literal placeholder.~~ Fixed: `.env` now holds a
+   generated 256-bit token. The API and the agent both read it from the root `.env`, so the two
+   sides stay in step; `.env.example` keeps the placeholder as documentation.
 4. ~~`tests/test_usage.py` fails locally on Windows with `ZoneInfoNotFoundError`.~~ Fixed: `tzdata`
    is now a runtime dependency of the agent (`pyproject.toml` and `requirements.txt`), because
    Windows ships no system tz database and `usage.py` resolves `ZoneInfo` at runtime. Existing

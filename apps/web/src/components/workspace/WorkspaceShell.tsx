@@ -139,7 +139,6 @@ export function WorkspaceShell({ providerUsage, providerUsageError, onExit }: Wo
                           start({
                             question: starter,
                             llmProvider: 'gemini',
-                            searchProvider: 'tavily',
                           })
                         }
                       >

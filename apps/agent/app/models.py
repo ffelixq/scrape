@@ -19,7 +19,6 @@ class InvestigationRequest(BaseModel):
     context: str = Field(default="", max_length=4_000)
     mode: Literal["STANDARD", "DEEP"] = "STANDARD"
     llm_provider: Literal["gemini", "groq", "deepseek"] = "gemini"
-    search_provider: Literal["tavily", "serper"] = "tavily"
 
 
 class SearchCandidate(BaseModel):
@@ -28,6 +27,26 @@ class SearchCandidate(BaseModel):
     snippet: str = ""
     published_at: str | None = None
     query_role: Literal["SUPPORT", "OPPOSE", "NEUTRAL"] = "NEUTRAL"
+    # Which discovery channels surfaced this URL. Two providers finding the same page is a
+    # deduplication fact, never a corroboration one: independence is decided later, from the
+    # retrieved documents, by build_provenance.
+    providers: list[Literal["tavily", "serper"]] = Field(default_factory=list)
+
+
+class SearchCoverage(BaseModel):
+    """How discovery narrowed raw search rows down to unique candidate sources.
+
+    Reported so the interface can show result rows and sources as the different things they are.
+    These are discovery counts and stop at the sandbox door: `metrics.sourcesChecked` counts what
+    was actually retrieved, and `metrics.independentSources` counts distinct origins.
+    """
+
+    resultsDiscovered: int = Field(default=0, ge=0)
+    uniqueSources: int = Field(default=0, ge=0)
+    resultsByProvider: dict[str, int] = Field(default_factory=dict)
+    overlappingSources: int = Field(default=0, ge=0)
+    queriesIssued: int = Field(default=0, ge=0)
+    queriesFailed: int = Field(default=0, ge=0)
 
 
 class ScrapedDocument(BaseModel):
@@ -172,6 +191,7 @@ class InvestigationResult(BaseModel):
     securityEvents: list[SecurityEventRecord]
     messages: list[ConversationMessage] = Field(default_factory=list)
     metrics: dict[str, int]
+    searchCoverage: SearchCoverage = Field(default_factory=SearchCoverage)
     audit: dict[str, str]
 
 

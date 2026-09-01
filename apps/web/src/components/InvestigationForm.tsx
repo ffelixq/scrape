@@ -4,13 +4,9 @@ import type {
   CreateInvestigationInput,
   LlmProvider,
   ProviderUsageDashboard,
-  SearchProvider,
 } from '@proofline/contracts';
 
-export type InvestigationFormInput = Pick<
-  CreateInvestigationInput,
-  'question' | 'llmProvider' | 'searchProvider'
->;
+export type InvestigationFormInput = Pick<CreateInvestigationInput, 'question' | 'llmProvider'>;
 
 interface InvestigationFormProps {
   onSubmit: (input: InvestigationFormInput) => void;
@@ -27,12 +23,11 @@ export function InvestigationForm({
 }: InvestigationFormProps) {
   const [question, setQuestion] = useState('');
   const [llmProvider, setLlmProvider] = useState<LlmProvider>('gemini');
-  const [searchProvider, setSearchProvider] = useState<SearchProvider>('tavily');
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalized = question.trim();
-    if (normalized.length >= 12) onSubmit({ question: normalized, llmProvider, searchProvider });
+    if (normalized.length >= 12) onSubmit({ question: normalized, llmProvider });
   }
 
   const status = (provider: string) =>
@@ -67,44 +62,36 @@ export function InvestigationForm({
         placeholder="Example: Is this company financially healthy enough to invest in?"
         disabled={disabled}
       />
-      <div className="provider-selectors" aria-label="Research providers">
-        <label>
-          <span>Analysis model</span>
-          <select
-            value={llmProvider}
-            onChange={(event) => setLlmProvider(event.target.value as LlmProvider)}
-            disabled={disabled}
-          >
-            <option value="gemini">Gemini 3.7 Flash (default){suffix('gemini')}</option>
-            <option value="groq">Groq · GPT-OSS 120B{suffix('groq')}</option>
-            <option value="deepseek">DeepSeek V4 Flash{suffix('deepseek')}</option>
-          </select>
-        </label>
-        <label>
-          <span>Search provider</span>
-          <select
-            value={searchProvider}
-            onChange={(event) => setSearchProvider(event.target.value as SearchProvider)}
-            disabled={disabled}
-          >
-            <option value="tavily">Tavily (default){suffix('tavily')}</option>
-            <option value="serper">Serper{suffix('serper')}</option>
-          </select>
-        </label>
-      </div>
       <div className="form-footer">
         <div className="secure-note">
           <LockKeyhole size={13} />
           <span>Isolated research · citation required</span>
         </div>
-        <button
-          type="submit"
-          className="investigate-button"
-          disabled={disabled || question.trim().length < 12}
-        >
-          <span>{compact ? 'New investigation' : 'Investigate'}</span>
-          <ArrowUpRight size={17} />
-        </button>
+        <div className="form-actions">
+          {/* The analysis model is the only research choice left to make, so it sits with the
+              action it modifies. Discovery and retrieval tooling is fixed and stated on the
+              landing page instead of offered here. */}
+          <label className="model-select">
+            <span className="sr-only">Analysis model</span>
+            <select
+              value={llmProvider}
+              onChange={(event) => setLlmProvider(event.target.value as LlmProvider)}
+              disabled={disabled}
+            >
+              <option value="gemini">Gemini 3.7 Flash{suffix('gemini')}</option>
+              <option value="groq">Groq · GPT-OSS 120B{suffix('groq')}</option>
+              <option value="deepseek">DeepSeek V4 Flash{suffix('deepseek')}</option>
+            </select>
+          </label>
+          <button
+            type="submit"
+            className="investigate-button"
+            disabled={disabled || question.trim().length < 12}
+          >
+            <span>{compact ? 'New investigation' : 'Investigate'}</span>
+            <ArrowUpRight size={17} />
+          </button>
+        </div>
       </div>
     </form>
   );
