@@ -138,6 +138,23 @@ class SecurityEventRecord(BaseModel):
     detectedAt: str
 
 
+class ConversationMessage(BaseModel):
+    """One turn of the follow-up conversation held against a finished investigation.
+
+    The API owns this record; the research run never writes it. It is modelled here so the
+    Pydantic and Zod descriptions of an investigation stay the same payload.
+    """
+
+    id: str
+    role: Literal["USER", "ASSISTANT"]
+    kind: Literal["NEW_RESEARCH", "FOLLOW_UP", "FOLLOW_UP_RESEARCH"]
+    content: str
+    createdAt: str
+    citedSourceIds: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
+    failed: bool = False
+
+
 class InvestigationResult(BaseModel):
     id: str
     question: str
@@ -153,8 +170,23 @@ class InvestigationResult(BaseModel):
     evidence: list[EvidenceRecord]
     contradictions: list[ContradictionRecord]
     securityEvents: list[SecurityEventRecord]
+    messages: list[ConversationMessage] = Field(default_factory=list)
     metrics: dict[str, int]
     audit: dict[str, str]
+
+
+class FollowUpRequest(BaseModel):
+    investigation_id: str
+    question: str = Field(min_length=3, max_length=2_000)
+    llm_provider: Literal["gemini", "groq", "deepseek"] = "gemini"
+    investigation: InvestigationResult
+
+
+class FollowUpAnswer(BaseModel):
+    answer: str
+    kind: Literal["FOLLOW_UP", "FOLLOW_UP_RESEARCH"] = "FOLLOW_UP"
+    citedSourceIds: list[str] = Field(default_factory=list)
+    limitations: list[str] = Field(default_factory=list)
 
 
 def utc_now() -> str:

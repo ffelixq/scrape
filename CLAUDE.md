@@ -17,21 +17,20 @@ npm test                 # API + web + sites
 npm run format:check     # or `npm run format` to write
 ```
 
-Python agent (create the venv at the repo root as `.venv`):
+Python agent (the venv lives at the repo root as `.venv`; these work on Windows and POSIX alike):
 
 ```bash
-python -m venv .venv
-.venv/Scripts/python.exe -m pip install -e "apps/agent[dev]"   # Windows
-.venv/Scripts/ruff.exe format --check apps/agent
-.venv/Scripts/ruff.exe check apps/agent
-.venv/Scripts/python.exe -m pytest -q apps/agent
+npm run setup:agent          # creates .venv and installs apps/agent[dev]
+npm run test:agent
+npm run lint:agent
+npm run format:agent:check   # or `npm run format:agent` to write
 ```
 
 Single tests:
 
 ```bash
-.venv/Scripts/python.exe -m pytest -q apps/agent/tests/test_search.py
-.venv/Scripts/python.exe -m pytest -q apps/agent -k "transient"
+node scripts/venv-run.mjs --cwd apps/agent -m pytest -q tests/test_search.py
+node scripts/venv-run.mjs --cwd apps/agent -m pytest -q -k "transient"
 npm run test -w @proofline/api -- src/tests/app.test.ts
 npm run test -w @proofline/web -- src/App.test.tsx
 npm run build:sites && node --test sites/worker.test.mjs
@@ -40,7 +39,8 @@ npm run build:sites && node --test sites/worker.test.mjs
 ### Gotchas that will waste your time
 
 - **Prisma first.** `npm run typecheck` fails in `@proofline/api` with `TS2694: ... has no exported member 'InputJsonValue'` on a clean checkout. That is a missing generated client, not a code error — run `npm run db:generate`.
-- **The root agent scripts are POSIX-only.** `npm run test:agent` and `npm run dev:agent` hardcode `.venv/bin/...` and do not work on Windows. Invoke `.venv/Scripts/python.exe` directly, as above.
+- **Never hardcode a venv path in an npm script.** `dev:agent`, `test:agent`, `lint:agent` and `format:agent*` go through `scripts/venv-run.mjs`, which resolves `.venv/Scripts` on Windows and `.venv/bin` elsewhere (honouring `VIRTUAL_ENV`) and spawns without a shell so `apps/agent[dev]` survives zsh globbing. The team runs both Windows and macOS; a `.venv/bin/...` literal breaks one of them.
+- **`.gitattributes` pins `eol=lf`.** Both platforms check out LF, so `prettier --check` and `ruff format --check` agree. Do not commit CRLF.
 - **Ruff is unpinned above `>=0.12.11`.** CI installs the latest, so format with whatever ruff your venv has; an older ruff will disagree and turn CI red.
 - **`npm test` builds the web bundle** (via `test:sites`), so it takes ~2 minutes.
 
@@ -56,6 +56,11 @@ The agent's Pydantic `InvestigationResult` (`apps/agent/app/models.py`) and the 
 changed together. `agent-client.ts` re-validates the agent's response through the Zod schema before
 anything is persisted or displayed, so a field added on one side and not the other fails at runtime,
 not at compile time. Agent field names are deliberately camelCase to match the contract.
+
+`messages` is the one field the agent never writes: the follow-up conversation is owned by the API.
+It is still modelled on both sides so the two descriptions stay the same payload, and it carries a
+Zod default so an agent response that omits it parses cleanly. `repository.complete()` merges the
+existing conversation back in, so a research result can never erase turns already on the record.
 
 ### Demo mode vs live mode
 
@@ -92,6 +97,35 @@ then the remaining configured fallbacks; the auditor runs after both complete. A
 the same per-investigation order, so do not describe the skeptic as independently hosted model
 compute. Source independence is established separately by the deterministic provenance layer.
 
+### Follow-up analysis
+
+`POST /api/investigations/:id/messages` continues an investigation that is already finished. It is
+not a research run: no search, no sandbox, no web access. Live mode calls the agent's `/follow-up`
+(`apps/agent/app/followup.py`), which renders the stored record — verdict, claims, validated
+evidence, sources, provenance groups, contradictions, limitations, prior turns — and answers over
+it. Demo mode never reaches a provider and answers deterministically from the same record in
+`apps/api/src/services/follow-up.ts`.
+
+Two rules keep it honest and belong with the evidence gate: stored excerpts re-enter the model
+wrapped in `<untrusted_evidence>`, and `enforce_citations` drops any cited source id that is not in
+that investigation. The user turn is stored before the answer is requested, so a provider failure
+leaves a visible question and a turn marked `failed` rather than a dropped exchange.
+
+### The web workspace
+
+`apps/web/src/lib/workspace-store.ts` is the single owner of workspace state: open tabs (ids only),
+the active tab, fetched investigations, history, and one live SSE subscription per running
+investigation. Subscriptions are keyed by id and independent of which tab is in front, which is why
+switching tabs never restarts research. It is a vanilla store read through `useSyncExternalStore`,
+deliberately not a context provider — `react-refresh/only-export-components` is an error under
+`--max-warnings 0`.
+
+Derivations live beside it and are pure and tested: `lib/investigation.ts` builds the self-doubt
+stages and evidence summary from a stored investigation, and `lib/graph-model.ts` builds the
+evidence graph as a tidy tree (verdict -> claim -> side -> evidence -> source -> origin). The
+self-doubt stages read the orchestrator's own prose to detect a gate downgrade, so changing that
+message in `orchestrator.py` means changing `GATE_MARKER` too.
+
 ### Trust boundaries
 
 Scraped pages, PDFs and downloaded files are hostile input. Retrieval happens only inside an
@@ -103,17 +137,29 @@ detail returned from `POST /investigate` comes from a closed vocabulary in
 
 ## Current state (uncommitted work in progress)
 
-Continuing Codex's `0cd369b feat: harden live evidence investigations`. Everything below is in the
-working tree and **not committed**. Full gate is green: 29 pytest, 3 API + 1 web + 3 sites tests,
-typecheck, lint, prettier, ruff.
+Two sessions of uncommitted work sit in the tree. The first hardened live evidence investigations
+(continuing Codex's `0cd369b`); the second rebuilt the interface around a persistent workspace.
 
-### Fixed this session
+### Interface rebuild (this session)
+
+- `App.tsx` now routes between the marketing landing page and a lazy `WorkspaceShell`. The old
+  `Workspace.tsx` and `ResearchProgress.tsx` were replaced by `components/workspace/*` (shell,
+  history sidebar, tab strip) and `components/investigation/*` (document view, self-doubt timeline,
+  evidence summary, live research status, conversation).
+- New API surface: `GET /api/investigations` (history summaries), `DELETE /api/investigations/:id`,
+  and `POST /api/investigations/:id/messages` (follow-up).
+- The stylesheet keeps the landing rules and replaces everything from the old report styles with a
+  workspace design system (tokens, shell, document, graph, conversation, responsive, print).
+- The live status panel reports only counts the run has actually produced; unknown values say
+  `Pending` rather than showing a placeholder number.
+
+### Fixed in the earlier session
 
 | Problem                                                                                                                                                                                                      | Fix                                                                                                                                                          |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | CI red on `main` — `prettier --check` failed on `App.test.tsx`, `ruff format --check` on three agent files                                                                                                   | Reformatted; cosmetic only                                                                                                                                   |
 | **Every live investigation crashed at search.** Tavily returns opaque Google redirect tokens instead of URLs (reproducibly 4 of 8 results on one query); one raised a `ValidationError` that aborted the run | `research/search.py` discards unusable rows and tolerates individual query failures, aborting only when every query fails. Covered by `tests/test_search.py` |
-| A single transient provider 503 discarded a run that had already spent a Daytona sandbox and a full scrape                                                                                                   | `StructuredLLM.parse` retries transient failures 3× with backoff; concrete providers implement `_parse_once`. Covered by `tests/test_providers.py`           |
+| A single transient provider 503 discarded a run that had already spent a Daytona sandbox and a full scrape                                                                                                   | `StructuredLLM.parse` retries transient failures 3x with backoff; concrete providers implement `_parse_once`. Covered by `tests/test_providers.py`           |
 | SDK retries multiplied against the application retry policy                                                                                                                                                  | `max_retries=0` on the OpenAI-compatible clients, so there is one observable retry policy                                                                    |
 | `RESEARCH_TIMEOUT_SECONDS=300` could not fit a real run (measured ~4s search, ~35s sandbox, and slow inference stages)                                                                                       | Raised to 900 in `.env.example` and `.env`, matching `DAYTONA_SANDBOX_TTL_MINUTES=15`                                                                        |
 | Agent failures reported only `ClientError`, which is unactionable                                                                                                                                            | `classify_live_failure` reports quota vs. unavailability from a closed vocabulary                                                                            |
@@ -129,5 +175,10 @@ typecheck, lint, prettier, ruff.
    is already `COMPLETED`/`FAILED` if the timed-out enqueue later lands. **Not applied.**
 2. **A full live run has never completed end-to-end.** The Gemini free-tier key hit its daily quota
    and returned 503 under load. Verifying the remaining pipeline needs an LLM key with sufficient
-   quota for all three analysis calls.
+   quota for all three analysis calls. The live `/follow-up` path is likewise unverified against a
+   real provider; its logic is covered by `tests/test_followup.py` with a stub model.
 3. `INTERNAL_AGENT_TOKEN` in `.env` is still the literal placeholder `replace-with-a-long-random-string`.
+4. ~~`tests/test_usage.py` fails locally on Windows with `ZoneInfoNotFoundError`.~~ Fixed: `tzdata`
+   is now a runtime dependency of the agent (`pyproject.toml` and `requirements.txt`), because
+   Windows ships no system tz database and `usage.py` resolves `ZoneInfo` at runtime. Existing
+   environments need one `pip install tzdata`. All 47 agent tests pass on Windows.

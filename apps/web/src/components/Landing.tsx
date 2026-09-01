@@ -14,6 +14,7 @@ import {
 import { motion } from 'framer-motion';
 import { lazy, Suspense, useLayoutEffect, useRef } from 'react';
 import { Brand } from './Brand';
+import { DoubtFlowPreview } from './DoubtFlowPreview';
 import { InvestigationForm } from './InvestigationForm';
 import type { InvestigationFormInput } from './InvestigationForm';
 import { ProviderUsagePanel } from './ProviderUsagePanel';
@@ -175,29 +176,27 @@ export function Landing({ onInvestigate, providerUsage, providerUsageError }: La
             <h2>Designed to doubt itself.</h2>
           </div>
           <p>
-            Normal AI optimizes for a plausible response. Proofline optimizes for an auditable
-            conclusion—and treats uncertainty as information.
+            Normal AI optimizes for a plausible response. Proofline argues against its own first
+            answer, traces every agreeing source back to its origin, and keeps only the conclusion
+            that survives.
           </p>
         </div>
 
-        <div className="principle-grid">
-          {principles.map(({ number, icon: Icon, title, copy }, index) => (
-            <motion.article
-              className="principle-card"
-              key={title}
-              initial={{ opacity: 0, y: 24 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true, amount: 0.3 }}
-              transition={{ delay: index * 0.08, duration: 0.5 }}
-            >
-              <div className="principle-top">
-                <span>{number}</span>
-                <Icon size={22} strokeWidth={1.7} />
-              </div>
-              <h3>{title}</h3>
-              <p>{copy}</p>
-            </motion.article>
-          ))}
+        <div className="method-layout">
+          <DoubtFlowPreview />
+          <aside className="method-principles">
+            <span className="example-chip">ILLUSTRATIVE FLOW</span>
+            {principles.map(({ number, icon: Icon, title, copy }) => (
+              <article key={title}>
+                <div>
+                  <Icon size={16} strokeWidth={1.8} />
+                  <span>{number}</span>
+                </div>
+                <h3>{title}</h3>
+                <p>{copy}</p>
+              </article>
+            ))}
+          </aside>
         </div>
       </section>
 

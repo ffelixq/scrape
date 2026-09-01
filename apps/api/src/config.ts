@@ -18,6 +18,7 @@ const envSchema = z.object({
   AGENT_SERVICE_URL: z.string().url().default('http://localhost:8001'),
   INTERNAL_AGENT_TOKEN: z.string().min(16).default('local-development-token'),
   RESEARCH_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(300),
+  FOLLOW_UP_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(120),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -35,4 +36,5 @@ export const appConfig = {
   agentServiceUrl: parsed.data.AGENT_SERVICE_URL,
   internalAgentToken: parsed.data.INTERNAL_AGENT_TOKEN,
   researchTimeoutMs: parsed.data.RESEARCH_TIMEOUT_SECONDS * 1000,
+  followUpTimeoutMs: parsed.data.FOLLOW_UP_TIMEOUT_SECONDS * 1000,
 };

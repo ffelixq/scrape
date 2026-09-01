@@ -16,6 +16,7 @@ Run these from the repository root:
 - `npm run dev` — start the web app, API, and agent together (web :5173, API :4000, agent :8001).
 - `npm run build` — build all workspace packages; use `npm run build:sites` for the site worker alone.
 - `npm run typecheck` and `npm run lint` — run TypeScript checks and ESLint.
+- `npm run setup:agent` — create `.venv` and install the Python agent (Windows and POSIX).
 - `npm test` — run API, web, and site tests; `npm run test:agent` runs Python tests.
 - `npm run format` / `npm run format:check` — apply or verify Prettier formatting.
 - `npm run db:generate` and `npm run db:migrate` — generate Prisma client and apply local migrations.

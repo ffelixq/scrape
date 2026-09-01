@@ -1,0 +1,13 @@
+# Both platforms check out LF, so `prettier --check` and `ruff format --check`
+# agree on Windows and macOS.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.woff binary
+*.woff2 binary

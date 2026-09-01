@@ -1,9 +1,13 @@
 import {
+  createFollowUpSchema,
   createInvestigationSchema,
+  investigationListSchema,
   investigationSchema,
   providerUsageDashboardSchema,
   type CreateInvestigationInput,
+  type LlmProvider,
   type Investigation,
+  type InvestigationSummary,
   type ProviderUsageDashboard,
 } from '@proofline/contracts';
 
@@ -48,6 +52,47 @@ export async function createInvestigation(input: CreateInvestigationInput): Prom
 export async function getInvestigation(id: string): Promise<Investigation> {
   const data = await request<unknown>(`/investigations/${encodeURIComponent(id)}`);
   return investigationSchema.parse(data);
+}
+
+export async function listInvestigations(): Promise<InvestigationSummary[]> {
+  const data = await request<unknown>('/investigations');
+  return investigationListSchema.parse(data).investigations;
+}
+
+export async function deleteInvestigation(id: string): Promise<void> {
+  const response = await fetch(`${API_URL}/investigations/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok && response.status !== 404) {
+    throw new ApiError('The investigation could not be deleted.', response.status);
+  }
+}
+
+/**
+ * Ask a follow-up against an existing investigation.
+ *
+ * A failed answer still updates the record: the API stores the question and an assistant turn
+ * marked `failed`, and returns the investigation with a 502. Returning that record keeps the
+ * conversation truthful about what happened instead of dropping the exchange.
+ */
+export async function askFollowUp(
+  id: string,
+  input: { question: string; llmProvider?: LlmProvider },
+): Promise<Investigation> {
+  const payload = createFollowUpSchema.parse(input);
+  const response = await fetch(`${API_URL}/investigations/${encodeURIComponent(id)}/messages`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = (await response.json().catch(() => null)) as unknown;
+  const parsed = investigationSchema.safeParse(body);
+  if (parsed.success) return parsed.data;
+  if (!response.ok) {
+    const error = body as { error?: string } | null;
+    throw new ApiError(error?.error || 'The follow-up could not be answered.', response.status);
+  }
+  throw new ApiError('The follow-up response could not be read.', response.status);
 }
 
 export async function getProviderUsage(): Promise<ProviderUsageDashboard> {

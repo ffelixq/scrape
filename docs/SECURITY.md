@@ -31,6 +31,17 @@ Proofline assumes every website, redirect, PDF, archive, document, and extracted
 - The supporter and skeptic can cite only URLs supplied in the evidence bundle.
 - Pydantic structured output rejects missing or invented schema fields.
 
+### Follow-up conversation
+
+- A follow-up reasons over an investigation that is already on the record. It performs no search,
+  opens no sandbox, and reaches no website.
+- The stored record still contains excerpts scraped from hostile pages, so every excerpt is
+  re-wrapped in `<untrusted_evidence>` before it re-enters a model, exactly as during research.
+- Answers may cite only source ids present in that investigation; citations to anything else are
+  dropped and the removal is disclosed in the answer's limitations.
+- The conversation is owned by the API. The research agent never writes it, and a completed
+  research result can never overwrite turns already on the record.
+
 ## Production hardening checklist
 
 - Build a versioned Daytona snapshot with pinned Playwright, Chromium, BeautifulSoup, and PyMuPDF packages.

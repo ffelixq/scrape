@@ -184,6 +184,7 @@ export function buildDemoInvestigation(id: string, question: string): Investigat
         sourceIds: [registry.id, article.id],
       },
     ],
+    messages: [],
     securityEvents: [
       {
         id: `${prefix}-sec1`,

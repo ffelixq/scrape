@@ -18,6 +18,7 @@ export const demoInvestigation: Investigation = {
     'The latest audited filing covers the year ending 31 December 2025.',
     'The supplier certification registry was unavailable during one verification attempt.',
   ],
+  messages: [],
   metrics: {
     sourcesChecked: 14,
     independentSources: 6,

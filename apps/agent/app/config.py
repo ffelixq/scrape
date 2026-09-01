@@ -49,6 +49,7 @@ class Settings(BaseSettings):
     max_sources_per_investigation: int = Field(default=20, ge=3, le=50)
     max_download_bytes: int = Field(default=25_000_000, ge=1_000_000, le=100_000_000)
     research_timeout_seconds: int = Field(default=300, ge=30, le=1_800)
+    follow_up_timeout_seconds: int = Field(default=120, ge=15, le=600)
     allow_private_networks: bool = False
     prompt_injection_sensitivity: Literal["low", "medium", "high"] = "medium"
 

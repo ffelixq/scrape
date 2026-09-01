@@ -1,0 +1,115 @@
+import type { Investigation } from '@proofline/contracts';
+
+/** A completed investigation with one supported and one contradicted claim. */
+export function investigationFixture(overrides: Partial<Investigation> = {}): Investigation {
+  const at = '2026-08-29T02:14:12.000Z';
+  return {
+    id: 'inv-1',
+    question: 'Is this supplier financially healthy enough for a two-year contract?',
+    status: 'COMPLETED',
+    verdict: 'INCONCLUSIVE',
+    answer: 'Historic growth is supported, but present readiness cannot be verified.',
+    evidenceStrength: 61,
+    createdAt: at,
+    completedAt: '2026-08-29T02:18:49.000Z',
+    limitations: [
+      "Proofline's deterministic evidence gate downgraded the model's initial verdict because the validated citations were insufficient.",
+      'No current bank reference was available.',
+    ],
+    sources: [
+      {
+        id: 'src-filing',
+        title: 'FY2025 audited financial statements',
+        publisher: 'Corporate Registry',
+        url: 'https://example.com/filing',
+        publishedAt: '2026-04-12T00:00:00.000Z',
+        accessedAt: at,
+        tier: 'PRIMARY',
+        reliabilityScore: 94,
+        independenceGroup: 'registry-2025',
+        isPrimary: true,
+        isDuplicate: false,
+        excerpt: 'Audited revenue increased by 22.4% year over year.',
+      },
+      {
+        id: 'src-newswire',
+        title: 'Supplier reports record year',
+        publisher: 'Industry Newswire',
+        url: 'https://example.com/newswire',
+        publishedAt: '2026-04-15T00:00:00.000Z',
+        accessedAt: at,
+        tier: 'SECONDARY',
+        reliabilityScore: 51,
+        independenceGroup: 'company-release',
+        isPrimary: false,
+        isDuplicate: true,
+        excerpt: 'The company described itself as a certified Tier-1 supplier.',
+      },
+    ],
+    claims: [
+      {
+        id: 'claim-growth',
+        text: 'FY2025 revenue increased by approximately 22.4%.',
+        status: 'SUPPORTED',
+        evidenceStrength: 88,
+        rationale: 'The figure comes from audited comparative statements.',
+        supportCount: 1,
+        opposeCount: 0,
+      },
+      {
+        id: 'claim-certification',
+        text: 'The claimed Tier-1 certification is current.',
+        status: 'CONTRADICTED',
+        evidenceStrength: 62,
+        rationale: 'Positive coverage traces to one company release.',
+        supportCount: 0,
+        opposeCount: 1,
+      },
+    ],
+    evidence: [
+      {
+        id: 'ev-1',
+        claimId: 'claim-growth',
+        sourceId: 'src-filing',
+        relation: 'SUPPORTS',
+        excerpt: 'Audited revenue increased by 22.4% year over year.',
+        location: 'Note 4',
+        weight: 0.94,
+      },
+      {
+        id: 'ev-2',
+        claimId: 'claim-certification',
+        sourceId: 'src-newswire',
+        relation: 'OPPOSES',
+        excerpt: 'The company described itself as a certified Tier-1 supplier.',
+        location: 'Paragraph 5',
+        weight: 0.4,
+      },
+    ],
+    contradictions: [
+      {
+        id: 'contra-1',
+        claimId: 'claim-certification',
+        summary: 'Coverage claims certification while the registry returns no record.',
+        resolution: 'The positive pages are derivative; require a certificate identifier.',
+        reason: 'METHODOLOGY',
+        sourceIds: ['src-newswire'],
+      },
+    ],
+    securityEvents: [],
+    messages: [],
+    metrics: {
+      sourcesChecked: 2,
+      independentSources: 1,
+      primarySources: 1,
+      contradictions: 1,
+      falseConsensusClusters: 1,
+    },
+    audit: {
+      supportingAgentSummary: 'Audited growth supports the case.',
+      opposingAgentSummary: 'The certification claim has no independent confirmation.',
+      auditorSummary: 'Growth is supported; present readiness is not verified.',
+    },
+    ...overrides,
+  };
+}

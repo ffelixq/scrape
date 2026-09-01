@@ -120,6 +120,21 @@ export const securityEventSchema = z.object({
   detectedAt: z.string(),
 });
 
+export const conversationRoleSchema = z.enum(['USER', 'ASSISTANT']);
+
+export const conversationKindSchema = z.enum(['NEW_RESEARCH', 'FOLLOW_UP', 'FOLLOW_UP_RESEARCH']);
+
+export const conversationMessageSchema = z.object({
+  id: z.string(),
+  role: conversationRoleSchema,
+  kind: conversationKindSchema,
+  content: z.string(),
+  createdAt: z.string(),
+  citedSourceIds: z.array(z.string()).default([]),
+  limitations: z.array(z.string()).default([]),
+  failed: z.boolean().default(false),
+});
+
 export const investigationSchema = z.object({
   id: z.string(),
   question: z.string(),
@@ -135,6 +150,9 @@ export const investigationSchema = z.object({
   evidence: z.array(evidenceSchema),
   contradictions: z.array(contradictionSchema),
   securityEvents: z.array(securityEventSchema),
+  // Follow-up conversation is owned by the API, not the research agent. The agent omits it and
+  // the default keeps a single parse path for both sources of an investigation.
+  messages: z.array(conversationMessageSchema).default([]),
   metrics: z.object({
     sourcesChecked: z.number().int().nonnegative(),
     independentSources: z.number().int().nonnegative(),
@@ -165,6 +183,42 @@ export const investigationEventSchema = z.object({
   at: z.string(),
 });
 
+export const investigationSummarySchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  question: z.string(),
+  status: investigationStatusSchema,
+  verdict: evidenceStatusSchema.nullable(),
+  evidenceStrength: z.number().min(0).max(100),
+  createdAt: z.string(),
+  completedAt: z.string().nullable(),
+  sourcesChecked: z.number().int().nonnegative(),
+  independentSources: z.number().int().nonnegative(),
+  contradictions: z.number().int().nonnegative(),
+  messageCount: z.number().int().nonnegative(),
+});
+
+export const investigationListSchema = z.object({
+  investigations: z.array(investigationSummarySchema),
+});
+
+export const createFollowUpSchema = z.object({
+  question: z
+    .string()
+    .trim()
+    .min(3, 'Ask a follow-up question about this investigation.')
+    .max(2_000),
+  llmProvider: llmProviderSchema.optional().default('gemini'),
+});
+
+/** The agent's answer to a follow-up asked against an already completed investigation. */
+export const followUpAnswerSchema = z.object({
+  answer: z.string(),
+  kind: z.enum(['FOLLOW_UP', 'FOLLOW_UP_RESEARCH']).default('FOLLOW_UP'),
+  citedSourceIds: z.array(z.string()).default([]),
+  limitations: z.array(z.string()).default([]),
+});
+
 export type EvidenceStatus = z.infer<typeof evidenceStatusSchema>;
 export type InvestigationStatus = z.infer<typeof investigationStatusSchema>;
 export type Source = z.infer<typeof sourceSchema>;
@@ -179,3 +233,10 @@ export type LlmProvider = z.infer<typeof llmProviderSchema>;
 export type SearchProvider = z.infer<typeof searchProviderSchema>;
 export type ProviderUsage = z.infer<typeof providerUsageSchema>;
 export type ProviderUsageDashboard = z.infer<typeof providerUsageDashboardSchema>;
+export type ConversationRole = z.infer<typeof conversationRoleSchema>;
+export type ConversationKind = z.infer<typeof conversationKindSchema>;
+export type ConversationMessage = z.infer<typeof conversationMessageSchema>;
+export type InvestigationSummary = z.infer<typeof investigationSummarySchema>;
+export type InvestigationList = z.infer<typeof investigationListSchema>;
+export type CreateFollowUpInput = z.infer<typeof createFollowUpSchema>;
+export type FollowUpAnswer = z.infer<typeof followUpAnswerSchema>;

@@ -8,8 +8,10 @@ The repository is fully runnable without credentials. Demo mode presents a compl
 
 ## What is included
 
-- Premium React + Vite public site and investigation workspace
-- Interactive claim → source evidence graph using React Flow
+- Premium React + Vite public site and a persistent investigation workspace with history and tabs
+- A self-doubt panel that shows how the conclusion was attacked, stage by stage
+- Interactive verdict → claim → evidence → source → origin graph using React Flow
+- Follow-up conversation over a finished investigation, grounded in its own record
 - Evidence-strength, source-quality, and contradiction visualizations
 - Express API with Zod validation, secure headers, rate limits, SSE updates, and graceful shutdown
 - PostgreSQL persistence with Prisma and normalized provenance records
@@ -45,23 +47,50 @@ The application does not claim mathematical truth. Its score measures evidence s
 
 ## Quick start
 
-Prerequisites: Node.js 22+, Python 3.11+, Docker, and npm.
+Prerequisites: Node.js 22+, Python 3.11+, Docker, and npm. macOS, Linux and Windows all work; the
+npm scripts resolve the Python environment for the platform they run on.
 
 ```bash
-cp .env.example .env
+cp .env.example .env      # Windows PowerShell: copy .env.example .env
 npm install
 docker compose up -d postgres redis
 npm run db:generate
 npm run db:migrate
-
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e 'apps/agent[dev]'
-
+npm run setup:agent       # creates .venv at the repository root and installs apps/agent[dev]
 npm run dev
 ```
 
 Open `http://localhost:5173`. With `DEMO_MODE=true`, no external account or API key is needed.
+
+`npm run setup:agent` is the only step that differs by machine, and it handles the difference
+itself: it finds `python3`, `python` or the `py` launcher, creates `.venv`, and installs the agent
+in editable mode. To use an environment somewhere else, set `VIRTUAL_ENV` before running the npm
+scripts. Every Python script — `dev:agent`, `test:agent`, `lint:agent`, `format:agent` — goes
+through `scripts/venv-run.mjs`, which picks `.venv/Scripts` on Windows and `.venv/bin` elsewhere.
+
+## The investigation workspace
+
+An investigation is a place you return to, not a single response.
+
+- **History and tabs.** Every investigation is kept on the record. Several can be open at once; a
+  tab keeps its own live research stream, so switching between them never restarts a run. Closing a
+  tab leaves the investigation in history until it is explicitly deleted.
+- **Designed to doubt itself.** A seven-stage timeline — initial thesis, challenge, opposing
+  evidence, contradictions, provenance, re-evaluation, verdict — reports what each stage actually
+  found and whether the conclusion got stronger or weaker. Stages are derived from recorded
+  evidence, so a stage that found nothing says so.
+- **Evidence summary before the graph.** Counts and strength meters come first; the graph is for
+  readers who want to trace a chain.
+- **Evidence graph.** A hierarchy rather than a web, in Simplified and Detailed views. Selecting a
+  node isolates its chain and dims the rest, and the inspector shows source metadata, publication
+  date, tier, reliability, independence and origin group.
+- **Follow-up conversation.** Ask “which sources are the strongest?”, “only use primary sources”, or
+  “try to disprove your conclusion” without repeating the question. Follow-ups reason over the
+  stored record and are labelled `FOLLOW-UP ANALYSIS`, distinct from the `NEW RESEARCH` turn that
+  opens the thread.
+
+Investigation state lives in the API, so history, verdicts, sources and conversation survive a
+refresh, a closed tab, or a return from history.
 
 ## Turn on live investigations
 
@@ -142,10 +171,9 @@ npm test
 npm run lint
 npm run typecheck
 
-source .venv/bin/activate
-ruff check apps/agent
-ruff format --check apps/agent
-pytest apps/agent
+npm run lint:agent
+npm run format:agent:check
+npm run test:agent
 ```
 
 ## Production deployment

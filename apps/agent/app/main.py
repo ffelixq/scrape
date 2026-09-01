@@ -6,7 +6,14 @@ from typing import Annotated
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 
 from app.config import Settings, get_settings
-from app.models import InvestigationRequest, InvestigationResult, utc_now
+from app.followup import answer_follow_up
+from app.models import (
+    FollowUpAnswer,
+    FollowUpRequest,
+    InvestigationRequest,
+    InvestigationResult,
+    utc_now,
+)
 from app.orchestrator import ResearchOrchestrator
 from app.providers import inference_status_code, is_transient_inference_error
 from app.usage import provider_usage_dashboard
@@ -92,4 +99,33 @@ async def investigate(
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail=f"No conclusion was produced. {classify_live_failure(error)}",
+            ) from error
+
+
+@app.post(
+    "/follow-up",
+    response_model=FollowUpAnswer,
+    dependencies=[Depends(require_internal_token)],
+)
+async def follow_up(
+    request: FollowUpRequest,
+    settings: SettingsDependency,
+) -> FollowUpAnswer:
+    """Answer a question about a finished investigation without starting a new research run."""
+    async with research_slots:
+        try:
+            return await asyncio.wait_for(
+                answer_follow_up(settings, request),
+                timeout=settings.follow_up_timeout_seconds,
+            )
+        except TimeoutError as error:
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail="The follow-up exceeded the configured safety timeout.",
+            ) from error
+        except Exception as error:
+            logger.exception("Follow-up analysis failed")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"No follow-up answer was produced. {classify_live_failure(error)}",
             ) from error
